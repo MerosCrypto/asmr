@@ -58,6 +58,8 @@ pub enum ScriptedCoin {
 pub enum UnscriptedCoin {
   #[enumeration(alias = "mr")]
   Meros,
+  #[enumeration(alias = "xmr")]
+  Monero,
 }
 
 enum AnyCoin {

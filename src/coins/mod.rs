@@ -71,6 +71,7 @@ pub trait UnscriptedClient {
 #[enum_dispatch]
 pub enum AnyUnscriptedClient {
   Meros(meros::client::MerosClient),
+  Monero(xmr::client::XmrClient),
 }
 
 #[async_trait]
@@ -121,4 +122,5 @@ pub trait UnscriptedVerifier: Send + Sync {
 #[enum_dispatch]
 pub enum AnyUnscriptedVerifier {
   Meros(meros::verifier::MerosVerifier),
+  Monero(xmr::verifier::XmrVerifier),
 }

@@ -3,15 +3,7 @@ use hex_literal::hex;
 
 use serde::{Serialize, Deserialize};
 
-use monero::{
-  blockdata::transaction::{TransactionPrefix, Transaction},
-  consensus::encode::deserialize,
-  network::Network,
-  util::{
-    key::{PrivateKey, PublicKey, KeyPair},
-    address::Address
-  }
-};
+use monero::network::Network;
 
 use crate::crypt_engines::{CryptEngine, ed25519_engine::Ed25519Sha};
 
@@ -23,28 +15,33 @@ lazy_static! {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct UnscriptedKeys {
-  pub dleq: Vec<u8>,
+pub struct XmrKeys {
+  pub dl_eq: Vec<u8>,
   pub view_share: [u8; 32]
 }
 
 #[derive(Deserialize)]
 pub struct XmrConfig {
-  pub url: String,
-  pub destination: String,
-  pub refund: String
+  pub daemon: String,
+  pub wallet: String
 }
 
 pub struct XmrEngine {
   pub k: Option<<Ed25519Sha as CryptEngine>::PrivateKey>,
-  pub view: <Ed25519Sha as CryptEngine>::PrivateKey
+  pub view: <Ed25519Sha as CryptEngine>::PrivateKey,
+  pub spend: Option<<Ed25519Sha as CryptEngine>::PublicKey>,
 }
 
 impl XmrEngine {
   pub fn new() -> XmrEngine {
     XmrEngine {
       k: None,
-      view: Ed25519Sha::new_private_key()
+      view: Ed25519Sha::new_private_key(),
+      spend: None
     }
+  }
+
+  pub fn set_spend(&mut self, other: <Ed25519Sha as CryptEngine>::PublicKey) {
+    self.spend = Some(Ed25519Sha::to_public_key(&self.k.expect("Verifying keys before generating")));
   }
 }

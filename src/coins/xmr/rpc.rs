@@ -8,33 +8,32 @@ use serde_json::json;
 use reqwest;
 
 use monero::{
-  blockdata::transaction::{TransactionPrefix, Transaction},
-  consensus::encode::deserialize,
-  util::{
-    key::{PrivateKey, PublicKey, KeyPair},
-    address::Address
-  }
+  blockdata::transaction::Transaction,
+  consensus::encode::deserialize
 };
 
-use crate::{
-  crypt_engines::{CryptEngine, ed25519_engine::Ed25519Sha},
-  coins::xmr::engine::*
-};
+use crate::coins::xmr::engine::XmrConfig;
 
 pub struct XmrRpc {
-  url: String,
+  daemon: String,
+  wallet: String,
+  pub height_at_start: isize,
   #[cfg(test)]
   wallet_address: String
 }
 
 impl XmrRpc {
   pub async fn new(config: &XmrConfig) -> anyhow::Result<XmrRpc> {
-    Ok(XmrRpc {
-      url: config.url.clone() + "/",
+    let mut result = XmrRpc {
+      daemon: config.daemon.clone() + "/",
+      wallet: config.wallet.clone() + "/",
+      height_at_start: -1,
       // TODO: Grab an address from the Monero wallet
       #[cfg(test)]
-      wallet_address: ""
-    })
+      wallet_address: "".to_string()
+    };
+    result.height_at_start = result.get_height().await;
+    Ok(result)
   }
 
   async fn rpc_call<
@@ -43,7 +42,7 @@ impl XmrRpc {
   >(&self, method: &str, params: &Params) -> anyhow::Result<Response> {
     let client = reqwest::Client::new();
     let res =
-      client.post(&(self.url.clone() + method))
+      client.post(&(self.daemon.clone() + method))
       .json(params)
       .send()
       .await?

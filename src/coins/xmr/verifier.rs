@@ -15,8 +15,7 @@ use monero::{
     key::{PrivateKey, PublicKey, ViewPair},
     ringct::EcdhInfo
   },
-  blockdata::transaction::{OwnedTxOut, Transaction},
-  cryptonote::hash::{Hash, Hashable}
+  cryptonote::hash::Hash
 };
 
 use crate::{
@@ -29,27 +28,18 @@ use crate::{
   }
 };
 
-struct XmrVerifier {
+pub struct XmrVerifier {
   engine: XmrEngine,
-  rpc: XmrRpc,
-  height_at_start: isize,
-  spend_key: Option<<Ed25519Sha as CryptEngine>::PublicKey>
+  rpc: XmrRpc
 }
 
 impl XmrVerifier {
   pub async fn new(config_path: &Path) -> anyhow::Result<XmrVerifier> {
-    let engine = XmrEngine::new();
-
     let config = serde_json::from_reader(File::open(config_path)?)?;
-    let rpc = XmrRpc::new(&config).await?;
-    let height_at_start = rpc.get_height().await;
-
     Ok(
       XmrVerifier {
-        engine,
-        rpc,
-        height_at_start,
-        spend_key: None
+        engine: XmrEngine::new(),
+        rpc: XmrRpc::new(&config).await?
       }
     )
   }
@@ -59,12 +49,11 @@ impl XmrVerifier {
 impl UnscriptedVerifier for XmrVerifier {
   fn generate_keys_for_engine<OtherCrypt: CryptEngine>(&mut self, phantom: PhantomData<&OtherCrypt>) -> (Vec<u8>, OtherCrypt::PrivateKey) {
     let (proof, key1, key2) = DlEqProof::<Ed25519Sha, OtherCrypt>::new();
-    self.spend_key = Some(Ed25519Sha::to_public_key(&key1));
     self.engine.k = Some(key1);
     (
       bincode::serialize(
-        &UnscriptedKeys {
-          dleq: proof.serialize(),
+        &XmrKeys {
+          dl_eq: proof.serialize(),
           view_share: Ed25519Sha::private_key_to_bytes(&self.engine.view)
         }
       ).expect("Couldn't serialize the unscripted keys"),
@@ -79,19 +68,19 @@ impl UnscriptedVerifier for XmrVerifier {
     verify_dleq should be renamed to verify_keys as it no longer just takes in the dl eq proof
   */
   fn verify_dleq_for_engine<OtherCrypt: CryptEngine>(&mut self, dleq: &[u8], _: PhantomData<&OtherCrypt>) -> anyhow::Result<OtherCrypt::PublicKey> {
-    let unscripted_keys: UnscriptedKeys = bincode::deserialize(dleq)?;
-    let dleq = DlEqProof::<OtherCrypt, Ed25519Sha>::deserialize(&unscripted_keys.dleq)?;
+    let keys: XmrKeys = bincode::deserialize(dleq)?;
+    let dleq = DlEqProof::<OtherCrypt, Ed25519Sha>::deserialize(&keys.dl_eq)?;
     let (key1, key2) = dleq.verify()?;
-    self.spend_key = Some(self.spend_key.expect("Verifying DLEQ proof before generating keys") + key2);
-    self.engine.view += Ed25519Sha::bytes_to_private_key(unscripted_keys.view_share)?;
+    self.engine.view += Ed25519Sha::bytes_to_private_key(keys.view_share)?;
+    self.engine.set_spend(key2);
     Ok(key1)
   }
 
   async fn verify_and_wait_for_send(&mut self) -> anyhow::Result<()> {
-    let mut last_handled_block = self.height_at_start - 1;
+    let mut last_handled_block = self.rpc.height_at_start - 1;
     let view_pair = ViewPair {
       spend: PublicKey {
-        point: self.spend_key.expect("Waiting for transaction before verifying DLEQ proof").compress()
+        point: self.engine.spend.expect("Waiting for transaction before verifying DLEQ proof").compress()
       },
       view: PrivateKey::from_scalar(self.engine.view)
     };
@@ -167,19 +156,6 @@ impl UnscriptedVerifier for XmrVerifier {
       if !line.to_lowercase().starts_with("y") {
         anyhow::bail!("User didn't confirm XMR amount");
       }
-    }
-
-    // Wait for the send to be confirmed
-    while {
-      let status = self.rpc.get_transaction(
-        &hex::encode(send.hash().as_bytes())
-      ).await.expect("Couldn't get a transaction from the RPC");
-      if status.is_none() {
-        anyhow::bail!("Transaction no longer exists in mempool")
-      }
-      status.unwrap().1 < CONFIRMATIONS
-    } {
-      tokio::time::delay_for(std::time::Duration::from_secs(10)).await;
     }
 
     Ok(())

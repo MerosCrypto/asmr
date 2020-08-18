@@ -1,8 +1,23 @@
+use std::{
+  marker::PhantomData,
+  path::Path,
+  fs::File
+};
+
 use async_trait::async_trait;
 
-use crate::coins::{
-  UnscriptedClient, ScriptedVerifier,
-  xmr::{engine::*, rpc::XmrRpc}
+use monero::util::{
+  key::{PrivateKey, PublicKey, ViewPair},
+  address::Address
+};
+
+use crate::{
+  crypt_engines::{KeyBundle, CryptEngine, ed25519_engine::Ed25519Sha},
+  coins::{
+    ScriptedVerifier, UnscriptedClient,
+    xmr::engine::*,
+    xmr::rpc::XmrRpc
+  }
 };
 
 pub struct XmrClient {
@@ -12,14 +27,87 @@ pub struct XmrClient {
   refund_tx_hex_hash: String
 }
 
+impl XmrClient {
+  pub async fn new(config_path: &Path) -> anyhow::Result<XmrClient> {
+    let config = serde_json::from_reader(File::open(config_path)?)?;
+    Ok(XmrClient{
+      engine: XmrEngine::new(),
+      rpc: XmrRpc::new(&config).await?,
+      refund_address: "".to_string(),
+      refund_tx_hex_hash: "".to_string()
+    })
+  }
+}
+
 #[async_trait]
 impl UnscriptedClient for XmrClient {
-  fn generate_keys<Verifier: ScriptedVerifier>(&mut self, verifier: &mut Verifier) -> Vec<u8> {todo!()}
-  fn verify_keys<Verifier: ScriptedVerifier>(&mut self, keys: &[u8], verifier: &mut Verifier) -> anyhow::Result<()> {todo!()}
+  fn generate_keys<Verifier: ScriptedVerifier>(&mut self, verifier: &mut Verifier) -> Vec<u8> {
+    let (dl_eq, key) = verifier.generate_keys_for_engine::<Ed25519Sha>(PhantomData);
+    self.engine.k = Some(key);
+    KeyBundle {
+      dl_eq: bincode::serialize(
+        &XmrKeys {
+          dl_eq,
+          view_share: Ed25519Sha::private_key_to_bytes(&self.engine.view)
+        }
+      ).unwrap(),
+      B: verifier.B(),
+      BR: verifier.BR(),
+      scripted_destination: verifier.destination_script()
+    }.serialize()
+  }
 
-  fn get_address(&mut self) -> String {todo!()}
-  async fn wait_for_deposit(&mut self) -> anyhow::Result<()> {todo!()}
-  async fn refund<Verifier: ScriptedVerifier >(self, verifier: Verifier) -> anyhow::Result<()> {todo!()}
+  fn verify_keys<Verifier: ScriptedVerifier>(&mut self, keys: &[u8], verifier: &mut Verifier) -> anyhow::Result<()> {
+    // Workaround for the problem described in verifier.rs
+    // It comments there a simple rename of dleq should work
+    // That saod, this demonstrates the need for an extra field entirely
+    let mut bundle: KeyBundle = bincode::deserialize(keys)?;
+    let xmr_keys: XmrKeys = bincode::deserialize(&bundle.dl_eq)?;
+    bundle.dl_eq = xmr_keys.dl_eq;
+    self.engine.view += Ed25519Sha::bytes_to_private_key(xmr_keys.view_share)?;
+    self.engine.set_spend(verifier.verify_keys_for_engine::<Ed25519Sha>(&keys, PhantomData)?);
+    Ok(())
+  }
+
+  fn get_address(&mut self) -> String {
+    Address::standard(
+      NETWORK,
+      PublicKey {
+        point: self.engine.spend.expect("Getting address before verifying DLEQ proof").compress()
+      },
+      PublicKey {
+        point: Ed25519Sha::to_public_key(&self.engine.view).compress()
+      }
+    ).to_string()
+  }
+
+  async fn wait_for_deposit(&mut self) -> anyhow::Result<()> {
+    // TODO: Merge this and the Verifier's copy into the RPC as a common function
+    let mut last_handled_block = self.rpc.height_at_start - 1;
+    let view_pair = ViewPair {
+      spend: PublicKey {
+        point: self.engine.spend.expect("Waiting for transaction before verifying DLEQ proof").compress()
+      },
+      view: PrivateKey::from_scalar(self.engine.view)
+    };
+
+    'outer: loop {
+      while self.rpc.get_height().await > last_handled_block {
+        for tx in self.rpc.get_transactions_in_block(last_handled_block).await {
+          if tx.prefix.check_outputs(&view_pair, 0..1, 0..1).is_err() {
+            continue
+          }
+          break 'outer;
+        }
+        last_handled_block += 1;
+      }
+      tokio::time::delay_for(std::time::Duration::from_secs(10)).await;
+    }
+
+    Ok(())
+  }
+
+  async fn refund<Verifier: ScriptedVerifier >(self, _verifier: Verifier) -> anyhow::Result<()> {todo!()}
 
   #[cfg(test)]
   fn override_refund_with_random_address(&mut self) {todo!()}
