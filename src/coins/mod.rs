@@ -1,5 +1,6 @@
 pub mod btc;
 pub mod meros;
+pub mod xmr;
 
 use std::marker::PhantomData;
 
