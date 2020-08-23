@@ -112,7 +112,7 @@ pub trait UnscriptedVerifier: Send + Sync {
   // These `PhantomData`s are needed because enum_dispatch doesn't specify method type parameters (probably a bug)
   fn generate_keys_for_engine<OtherCrypt: CryptEngine>(&mut self, phantom: PhantomData<&OtherCrypt>) -> (Vec<u8>, OtherCrypt::PrivateKey);
   fn verify_dleq_for_engine<OtherCrypt: CryptEngine>(&mut self, dleq: &[u8], phantom: PhantomData<&OtherCrypt>) -> anyhow::Result<OtherCrypt::PublicKey>;
-  
+
   async fn verify_and_wait_for_send(&mut self) -> anyhow::Result<()>;
   async fn finish<Host: ScriptedHost >(&mut self, host: &Host) -> anyhow::Result<()>;
 }

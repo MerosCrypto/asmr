@@ -27,6 +27,6 @@ pub async fn test_published_lock(
     host.advance_consensus().await?;
   }
   host.refund(hosts_verifier).await?;
-  
+
   Ok(true)
 }

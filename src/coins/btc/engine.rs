@@ -136,7 +136,7 @@ impl BtcEngine {
     lock_script.extend(swap_hash.to_vec());
     lock_script.extend(&hex!("885221"));
     lock_script.extend(bs[0]);
-  
+
     lock_script.extend(&hex!("21"));
     lock_script.extend(bs[1]);
 

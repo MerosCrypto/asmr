@@ -147,7 +147,7 @@ impl ScriptedVerifier for BtcVerifier {
   ) -> anyhow::Result<Vec<u8>> {
     let host_refund = self.host_refund.as_ref().expect("Completing refund before verifying keys");
     let lock_and_refund: LockAndRefundInfo = bincode::deserialize(lock_and_host_signed_refund)?;
-    
+
     let our_fee_per_byte: i64 = self.rpc.get_fee_per_byte().await?.try_into().expect("Fee per byte is greater than 2^63");
     let variance = our_fee_per_byte / 10; // 10% variance
     if (our_fee_per_byte - i64::try_from(lock_and_refund.fee_per_byte)?).abs() > variance {

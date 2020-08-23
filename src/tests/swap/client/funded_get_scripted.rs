@@ -36,7 +36,7 @@ pub async fn test_funded_get_scripted(
     host.advance_consensus().await?;
   }
   client.refund(clients_verifier).await?;
-  
+
   // Report that no refund occurred because we claimed the BTC refund to the client's destination address
   Ok(false)
 }

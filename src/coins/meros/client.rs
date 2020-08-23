@@ -89,7 +89,7 @@ impl UnscriptedClient for MerosClient {
     } else {
       let utxos = self.rpc.get_utxos(self.address.expect("Couldn't get address despite the option being some")).await;
 
-      /*    
+      /*
         No UTXOs meant the other party already claimed these funds
         We can't then claim the BTC as this would've required us to try to claim the BTC
         And since we tried it, and failed, there's not much to do
@@ -135,7 +135,7 @@ impl UnscriptedClient for MerosClient {
   }
   #[cfg(test)]
   async fn advance_consensus(&self) -> anyhow::Result<()> {
-    Ok(())    
+    Ok(())
   }
   #[cfg(test)]
   fn get_refund_address(&self) -> String {

@@ -292,7 +292,7 @@ impl ScriptedHost for BtcHost {
     self.refund = Some(refund);
 
     self.encrypted_spend_signature = Some(encrypted_spend_signature);
-    
+
     Ok(())
   }
 
@@ -342,7 +342,7 @@ impl ScriptedHost for BtcHost {
       if !lock_exists {
         let address = self.address.expect("Address is some yet couldn't get its value");
         let utxos = self.rpc.get_spendable(&address.1).await?;
-        // Path B 
+        // Path B
         if utxos.len() == 0 {
           Ok(())
         // Path C
@@ -357,7 +357,7 @@ impl ScriptedHost for BtcHost {
               witness: Vec::new()
             })
           }).collect::<anyhow::Result<_>>()?;
-  
+
           let mut return_tx = Transaction {
             version: 2,
             lock_time: 0,
@@ -376,23 +376,23 @@ impl ScriptedHost for BtcHost {
           let private_key = secp256k1::SecretKey::from_slice(
             &Secp256k1Engine::private_key_to_bytes(&address.0)
           ).expect("Secp256k1Engine generated an invalid secp256k1 key");
-      
+
           let key_bytes = Secp256k1Engine::public_key_to_bytes(
             &Secp256k1Engine::to_public_key(&address.0)
           );
-      
+
           let mut segwit_script_code = hex!("76a914").to_vec();
           segwit_script_code.extend(&address.2);
           segwit_script_code.extend(hex!("88ac").to_vec());
           let segwit_script_code = Script::from(segwit_script_code);
-      
+
           let components = SighashComponents::new(&return_tx);
           for i in 0 .. return_tx.input.len() {
             let signature = SECP.sign(
               &secp256k1::Message::from_slice(&components.sighash_all(&return_tx.input[i], &segwit_script_code, value))?,
               &private_key
             ).serialize_der();
-      
+
             let mut signature = signature.to_vec();
             signature.push(1);
             return_tx.input[i].witness = vec![signature, key_bytes.clone()];
@@ -404,7 +404,7 @@ impl ScriptedHost for BtcHost {
       } else {
         // If we published the lock, we need to publish the refund transaction
         // First, we need to wait for T0 to expire
-        
+
         while self.rpc.get_height().await < (self.lock_height.expect("Never set lock height despite published lock") + (T0 as isize)) {
           #[cfg(test)]
           for _ in 0 .. T0 {

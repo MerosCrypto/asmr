@@ -27,7 +27,7 @@ pub async fn test_generated_address(
   clients_verifier.verify_prepared_buy(&host.prepare_buy_for_client().await.context("Couldn't prepare the buy")?)?;
   clients_verifier.verify_and_wait_for_lock().await.context("Couldn't verify the lock")?;
   let _ = client.get_address();
-  
+
   client.refund(clients_verifier).await?;
   Ok(false)
 }

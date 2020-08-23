@@ -39,7 +39,7 @@ pub async fn run_test<F, Fut>(host_test: bool, test: F)
   host.override_refund_with_random_address();
   let host_refund = host.get_refund_address();
   let hosts_verifier: AnyUnscriptedVerifier = MerosVerifier::new(&unscripted).expect("Failed to create BTC verifier").into();
-  
+
   let mut client: AnyUnscriptedClient = MerosClient::new(&unscripted).expect("Failed to create Meros client").into();
   client.override_refund_with_random_address();
   let client_refund = client.get_refund_address();

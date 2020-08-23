@@ -180,7 +180,7 @@ async fn host(opts: Cli, mut stream: TcpStream, host: &mut AnyScriptedHost, veri
   /*
     Now that we've exchanged the relevant keys, it's time to start on the transactions
     The host is supposed to create the lock, the refund, and the spend, signing the refund
-    
+
     Then, the whitepaper says to transmit all three, so the client can verify everything
     That said, the client can't properly verify the lock
     They'd need to verify its inputs exist and are correct, have the correct script, and has a valid signature

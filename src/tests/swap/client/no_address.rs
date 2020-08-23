@@ -12,7 +12,7 @@ pub async fn test_no_client_address(
   let client_keys = client.generate_keys(&mut clients_verifier);
   host.verify_keys(&client_keys, &mut hosts_verifier).context("Couldn't verify client DlEq proof")?;
   client.verify_keys(&host_keys, &mut clients_verifier).context("Couldn't verify host DlEq proof")?;
-  
+
   client.refund(clients_verifier).await?;
   Ok(false)
 }
