@@ -60,12 +60,12 @@ impl UnscriptedClient for XmrClient {
   fn verify_keys<Verifier: ScriptedVerifier>(&mut self, keys: &[u8], verifier: &mut Verifier) -> anyhow::Result<()> {
     // Workaround for the problem described in verifier.rs
     // It comments there a simple rename of dleq should work
-    // That saod, this demonstrates the need for an extra field entirely
+    // That said, this demonstrates the need for an extra field entirely
     let mut bundle: KeyBundle = bincode::deserialize(keys)?;
     let xmr_keys: XmrKeys = bincode::deserialize(&bundle.dl_eq)?;
     bundle.dl_eq = xmr_keys.dl_eq;
     self.engine.view += Ed25519Sha::bytes_to_private_key(xmr_keys.view_share)?;
-    self.engine.set_spend(verifier.verify_keys_for_engine::<Ed25519Sha>(&keys, PhantomData)?);
+    self.engine.set_spend(verifier.verify_keys_for_engine::<Ed25519Sha>(&bincode::serialize(&bundle).unwrap(), PhantomData)?);
     Ok(())
   }
 
@@ -93,7 +93,7 @@ impl UnscriptedClient for XmrClient {
 
     'outer: loop {
       while self.rpc.get_height().await > last_handled_block {
-        for tx in self.rpc.get_transactions_in_block(last_handled_block).await {
+        for tx in self.rpc.get_transactions_in_block(last_handled_block).await? {
           if tx.prefix.check_outputs(&view_pair, 0..1, 0..1).is_err() {
             continue
           }

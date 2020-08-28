@@ -8,7 +8,10 @@ use serde_json::json;
 use reqwest;
 
 use monero::{
-  blockdata::transaction::Transaction,
+  blockdata::{
+    transaction::Transaction,
+    block::Block
+  },
   consensus::encode::deserialize
 };
 
@@ -39,11 +42,13 @@ impl XmrRpc {
   async fn rpc_call<
     Params: Serialize + Debug,
     Response: DeserializeOwned + Debug
-  >(&self, method: &str, params: &Params) -> anyhow::Result<Response> {
+  >(&self, method: &str, params: Option<Params>) -> anyhow::Result<Response> {
     let client = reqwest::Client::new();
-    let res =
-      client.post(&(self.daemon.clone() + method))
-      .json(params)
+    let mut builder = client.post(&(self.daemon.clone() + method));
+    if params.is_some() {
+      builder = builder.json(params.as_ref().unwrap());
+    }
+    let res = builder
       .send()
       .await?
       .text()
@@ -61,7 +66,7 @@ impl XmrRpc {
       height: isize
     };
 
-    let res: HeightResponse = self.rpc_call("get_height", &json!([])).await.expect("Failed to get the height");
+    let res: HeightResponse = self.rpc_call::<Option<()>, _>("get_height", None).await.expect("Failed to get the height");
     res.height
   }
 
@@ -72,7 +77,7 @@ impl XmrRpc {
       quantization_mask: u64
     };
 
-    let res: FeeInfo = self.rpc_call("get_fee_estimate", &json!([])).await?;
+    let res: FeeInfo = self.rpc_call::<Option<()>, _>("get_fee_estimate", None).await?;
     Ok((res.fee, res.quantization_mask))
   }
 
@@ -87,9 +92,9 @@ impl XmrRpc {
       txs: Vec<TransactionResponse>
     };
 
-    let txs: TransactionsResponse = self.rpc_call("get_transactions", &json!({
+    let txs: TransactionsResponse = self.rpc_call("get_transactions", Some(json!({
       "txs_hashes": [hash_hex]
-    })).await?;
+    }))).await?;
     Ok(
       if txs.txs.len() == 0 {
         None
@@ -110,7 +115,36 @@ impl XmrRpc {
     )
   }
 
-  pub async fn get_transactions_in_block(&self, height: isize) -> Vec<Transaction> {todo!()}
+  pub async fn get_transactions_in_block(&self, height: isize) -> anyhow::Result<Vec<Transaction>> {
+    #[derive(Deserialize, Debug)]
+    struct BlockResponse {
+      blob: String
+    }
+    #[derive(Deserialize, Debug)]
+    struct JsonRpcResponse {
+      result: BlockResponse
+    }
+
+    let res: JsonRpcResponse = self.rpc_call("json_rpc", Some(json!({
+      "jsonrpc": "2.0",
+      "id": (),
+      "method": "get_block",
+      "params": {
+        "height": height
+      }
+    }))).await?;
+    let block: Block = deserialize(&hex::decode(&res.result.blob)?).expect("Monero returned a block we couldn't deserialize");
+    let mut result = Vec::new();
+    for hash in block.tx_hashes {
+      result.push(
+        self.get_transaction(&hex::encode(hash.as_bytes()))
+          .await?
+          .expect("Couldn't get transaction included in block")
+          .0
+      );
+    }
+    Ok(result)
+  }
 
   pub async fn publish(&self, tx: &[u8]) -> anyhow::Result<()> {
     #[derive(Deserialize, Debug)]
@@ -119,9 +153,9 @@ impl XmrRpc {
       status: String
     };
 
-    let res: PublishResponse = self.rpc_call("send_raw_transaction", &json!({
+    let res: PublishResponse = self.rpc_call("send_raw_transaction", Some(json!({
       "tx_as_hex": hex::encode(tx)
-    })).await?;
+    }))).await?;
 
     if (res.double_spend) || (res.status != "OK") {
       anyhow::bail!("Double spend/not okay");
@@ -136,9 +170,9 @@ impl XmrRpc {
 
   #[cfg(test)]
   pub async fn mine_block(&self) -> anyhow::Result<()> {
-    self.rpc_call("generateblocks", &json!({
+    self.rpc_call("generateblocks", Some(json!({
       "wallet_address": self.wallet_address,
       "amount_of_blocks": 1
-    })).await
+    }))).await
   }
 }

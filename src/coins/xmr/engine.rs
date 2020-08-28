@@ -7,7 +7,10 @@ use monero::network::Network;
 
 use crate::crypt_engines::{CryptEngine, ed25519_engine::Ed25519Sha};
 
-pub const NETWORK: Network = Network::Testnet;
+#[cfg(not(feature = "no_confs"))]
+pub const CONFIRMATIONS: isize = 3;
+// Required to always use at least one confirmation because we iterate over new blocks, not the mempool.
+#[cfg(feature = "no_confs")]
 pub const CONFIRMATIONS: isize = 1;
 
 lazy_static! {
