@@ -9,7 +9,9 @@ use crate::crypt_engines::{CryptEngine, ed25519_engine::Ed25519Sha};
 
 #[cfg(not(feature = "no_confs"))]
 pub const CONFIRMATIONS: isize = 3;
-// Required to always use at least one confirmation because we iterate over new blocks, not the mempool.
+// Required to always use at least one confirmation because we iterate over new blocks, not the mempool
+// This can be set to 0 for the same effect; it's just misleading to suggest it doesn't actually need confs
+// At the same time, this feature being named no_confs is also decently misleading, but it does have wider implications
 #[cfg(feature = "no_confs")]
 pub const CONFIRMATIONS: isize = 1;
 

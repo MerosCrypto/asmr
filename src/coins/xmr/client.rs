@@ -82,29 +82,12 @@ impl UnscriptedClient for XmrClient {
   }
 
   async fn wait_for_deposit(&mut self) -> anyhow::Result<()> {
-    // TODO: Merge this and the Verifier's copy into the RPC as a common function
-    let mut last_handled_block = self.rpc.height_at_start - 1;
-    let view_pair = ViewPair {
+    self.rpc.wait_for_deposit(&ViewPair {
       spend: PublicKey {
         point: self.engine.spend.expect("Waiting for transaction before verifying DLEQ proof").compress()
       },
       view: PrivateKey::from_scalar(self.engine.view)
-    };
-
-    'outer: loop {
-      while self.rpc.get_height().await > last_handled_block {
-        for tx in self.rpc.get_transactions_in_block(last_handled_block).await? {
-          let outputs = tx.prefix.check_outputs(&view_pair, 0..1, 0..1);
-          if outputs.is_err() || (outputs.unwrap().len() == 0) {
-            continue;
-          }
-          break 'outer;
-        }
-        last_handled_block += 1;
-      }
-      tokio::time::delay_for(std::time::Duration::from_secs(10)).await;
-    }
-
+    }).await?;
     Ok(())
   }
 

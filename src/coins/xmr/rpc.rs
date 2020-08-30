@@ -8,6 +8,7 @@ use serde_json::json;
 use reqwest;
 
 use monero::{
+  util::key::ViewPair,
   blockdata::{
     transaction::Transaction,
     block::Block
@@ -15,12 +16,12 @@ use monero::{
   consensus::encode::deserialize
 };
 
-use crate::coins::xmr::engine::XmrConfig;
+use crate::coins::xmr::engine::{CONFIRMATIONS, XmrConfig};
 
 pub struct XmrRpc {
   daemon: String,
   wallet: String,
-  pub height_at_start: isize,
+  height_at_start: isize,
   #[cfg(test)]
   wallet_address: String
 }
@@ -115,7 +116,7 @@ impl XmrRpc {
     )
   }
 
-  pub async fn get_transactions_in_block(&self, height: isize) -> anyhow::Result<Vec<Transaction>> {
+  pub async fn wait_for_deposit(&self, pair: &ViewPair) -> anyhow::Result<Transaction> {
     #[derive(Deserialize, Debug)]
     struct BlockResponse {
       blob: String
@@ -125,24 +126,48 @@ impl XmrRpc {
       result: BlockResponse
     }
 
-    let res: JsonRpcResponse = self.rpc_call("json_rpc", Some(json!({
-      "jsonrpc": "2.0",
-      "id": (),
-      "method": "get_block",
-      "params": {
-        "height": height
+    let mut block = self.height_at_start - 1;
+    let result;
+    'outer: loop {
+      while self.get_height().await > block {
+        for hash in deserialize::<Block>(
+          &hex::decode(
+            &(
+              self.rpc_call::<_, JsonRpcResponse>(
+                "json_rpc",
+                Some(json!({
+                  "jsonrpc": "2.0",
+                  "id": (),
+                  "method": "get_block",
+                  "params": {
+                    "height": block
+                  }
+                }))
+              ).await?
+            ).result.blob
+          ).expect("Monero returned a non-hex blob")
+        ).expect("Monero returned a block we couldn't deserialize").tx_hashes {
+          let tx = self.get_transaction(&hex::encode(hash.as_bytes()))
+            .await?
+            .expect("Couldn't get transaction included in block")
+            .0;
+
+          let outputs = tx.prefix.check_outputs(pair, 0..1, 0..1);
+          if outputs.is_err() || (outputs.unwrap().len() == 0) {
+            continue;
+          }
+          result = tx;
+          break 'outer;
+        }
+        block += 1;
       }
-    }))).await?;
-    let block: Block = deserialize(&hex::decode(&res.result.blob)?).expect("Monero returned a block we couldn't deserialize");
-    let mut result = Vec::new();
-    for hash in block.tx_hashes {
-      result.push(
-        self.get_transaction(&hex::encode(hash.as_bytes()))
-          .await?
-          .expect("Couldn't get transaction included in block")
-          .0
-      );
+      tokio::time::delay_for(std::time::Duration::from_secs(10)).await;
     }
+
+    while self.get_height().await < block + CONFIRMATIONS {
+      tokio::time::delay_for(std::time::Duration::from_secs(10)).await;
+    }
+
     Ok(result)
   }
 

@@ -48,7 +48,7 @@ impl XmrVerifier {
 
 #[async_trait]
 impl UnscriptedVerifier for XmrVerifier {
-  fn generate_keys_for_engine<OtherCrypt: CryptEngine>(&mut self, phantom: PhantomData<&OtherCrypt>) -> (Vec<u8>, OtherCrypt::PrivateKey) {
+  fn generate_keys_for_engine<OtherCrypt: CryptEngine>(&mut self, _phantom: PhantomData<&OtherCrypt>) -> (Vec<u8>, OtherCrypt::PrivateKey) {
     let (proof, key1, key2) = DlEqProof::<Ed25519Sha, OtherCrypt>::new();
     self.engine.k = Some(key1);
     (
@@ -78,37 +78,20 @@ impl UnscriptedVerifier for XmrVerifier {
   }
 
   async fn verify_and_wait_for_send(&mut self) -> anyhow::Result<()> {
-    let mut last_handled_block = self.rpc.height_at_start - 1;
-    let view_pair = ViewPair {
+    let pair = ViewPair {
       spend: PublicKey {
         point: self.engine.spend.expect("Waiting for transaction before verifying DLEQ proof").compress()
       },
       view: PrivateKey::from_scalar(self.engine.view)
     };
-
-    // Find the send
-    let send;
-    'outer: loop {
-      while self.rpc.get_height().await > last_handled_block {
-        for tx in self.rpc.get_transactions_in_block(last_handled_block).await? {
-          let outputs = tx.prefix.check_outputs(&view_pair, 0..1, 0..1);
-          if outputs.is_err() || (outputs.unwrap().len() == 0) {
-            continue;
-          }
-          send = tx;
-          break 'outer;
-        }
-        last_handled_block += 1;
-      }
-      tokio::time::delay_for(std::time::Duration::from_secs(10)).await;
-    }
+    let send = self.rpc.wait_for_deposit(&pair).await?;
 
     // Verify metadata
     if (send.prefix.version.0 != 2) || (send.prefix.unlock_time.0 != 0) {
       anyhow::bail!("Invalid version/unlock time");
     }
 
-    let outputs = send.prefix.check_outputs(&view_pair, 0..1, 0..1).unwrap();
+    let outputs = send.prefix.check_outputs(&pair, 0..1, 0..1).unwrap();
 
     // Decrypt the amount, verify the accuracy of the commitment, and confirm with the user
     let enc_amount;
@@ -117,7 +100,7 @@ impl UnscriptedVerifier for XmrVerifier {
     } else {
       anyhow::bail!("Unrecognized transaction type");
     }
-  
+
     let mut amount_key;
     if let Some(uncompressed) = outputs[0].tx_pubkey.point.decompress() {
       amount_key = self.engine.view * uncompressed;
@@ -134,7 +117,7 @@ impl UnscriptedVerifier for XmrVerifier {
     let amount_key = Scalar::from_bytes_mod_order(
       Hash::hash(&to_hash).to_bytes()
     ).to_bytes();
-  
+
     let mut amount_enc_key = "amount".as_bytes().to_vec();
     amount_enc_key.extend(&amount_key);
 
@@ -170,13 +153,13 @@ impl UnscriptedVerifier for XmrVerifier {
   }
 
   async fn finish<Host: ScriptedHost >(&mut self, host: &Host) -> anyhow::Result<()> {
-    println!("View key:            {}", hex::encode(self.engine.view.as_bytes()));
     println!("Recovered spend key: {}", hex::encode(
       Ed25519Sha::private_key_to_bytes(
         &(Ed25519Sha::little_endian_bytes_to_private_key(host.recover_final_key().await?)? +
         self.engine.k.expect("Finishing before generating keys"))
       )
     ));
+    println!("View key:            {}", hex::encode(self.engine.view.as_bytes()));
     Ok(())
   }
 }
