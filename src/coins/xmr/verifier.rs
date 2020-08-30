@@ -7,6 +7,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use hex;
 
 use curve25519_dalek::scalar::Scalar;
 
@@ -92,7 +93,7 @@ impl UnscriptedVerifier for XmrVerifier {
         for tx in self.rpc.get_transactions_in_block(last_handled_block).await? {
           let outputs = tx.prefix.check_outputs(&view_pair, 0..1, 0..1);
           if outputs.is_err() || (outputs.unwrap().len() == 0) {
-            continue
+            continue;
           }
           send = tx;
           break 'outer;
@@ -117,15 +118,21 @@ impl UnscriptedVerifier for XmrVerifier {
       anyhow::bail!("Unrecognized transaction type");
     }
   
-    let amount_key;
+    let mut amount_key;
     if let Some(uncompressed) = outputs[0].tx_pubkey.point.decompress() {
       amount_key = self.engine.view * uncompressed;
     } else {
       anyhow::bail!("Invalid key used in transaction");
     }
-    amount_key.mul_by_cofactor();
+    amount_key = amount_key.mul_by_cofactor();
+    let mut to_hash = amount_key.compress().to_bytes().to_vec();
+    // TODO: Handle this edge case
+    if outputs[0].index > 127 {
+      anyhow::bail!("Transaction output uses VarInt encoding which isn't supported")
+    }
+    to_hash.push(outputs[0].index as u8);
     let amount_key = Scalar::from_bytes_mod_order(
-      Hash::hash(&amount_key.compress().to_bytes()).to_fixed_bytes()
+      Hash::hash(&to_hash).to_bytes()
     ).to_bytes();
   
     let mut amount_enc_key = "amount".as_bytes().to_vec();
@@ -164,7 +171,12 @@ impl UnscriptedVerifier for XmrVerifier {
 
   async fn finish<Host: ScriptedHost >(&mut self, host: &Host) -> anyhow::Result<()> {
     println!("View key:            {}", hex::encode(self.engine.view.as_bytes()));
-    println!("Recovered spend key: {}", hex::encode(host.recover_final_key().await?));
+    println!("Recovered spend key: {}", hex::encode(
+      Ed25519Sha::private_key_to_bytes(
+        &(Ed25519Sha::little_endian_bytes_to_private_key(host.recover_final_key().await?)? +
+        self.engine.k.expect("Finishing before generating keys"))
+      )
+    ));
     Ok(())
   }
 }

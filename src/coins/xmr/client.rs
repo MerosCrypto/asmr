@@ -94,8 +94,9 @@ impl UnscriptedClient for XmrClient {
     'outer: loop {
       while self.rpc.get_height().await > last_handled_block {
         for tx in self.rpc.get_transactions_in_block(last_handled_block).await? {
-          if tx.prefix.check_outputs(&view_pair, 0..1, 0..1).is_err() {
-            continue
+          let outputs = tx.prefix.check_outputs(&view_pair, 0..1, 0..1);
+          if outputs.is_err() || (outputs.unwrap().len() == 0) {
+            continue;
           }
           break 'outer;
         }

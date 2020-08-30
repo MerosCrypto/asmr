@@ -13,6 +13,9 @@ pub const CONFIRMATIONS: isize = 3;
 #[cfg(feature = "no_confs")]
 pub const CONFIRMATIONS: isize = 1;
 
+// This should NOT be used with the mainnet. The regtest mode uses the same address byte
+pub const NETWORK: Network = Network::Mainnet;
+
 lazy_static! {
   pub static ref C: <Ed25519Sha as CryptEngine>::PublicKey = Ed25519Sha::bytes_to_public_key(&hex!("8b655970153799af2aeadc9ff1add0ea6c7251d54154cfa92c173a0dd39c1f94")).unwrap();
 }
@@ -45,6 +48,6 @@ impl XmrEngine {
   }
 
   pub fn set_spend(&mut self, other: <Ed25519Sha as CryptEngine>::PublicKey) {
-    self.spend = Some(Ed25519Sha::to_public_key(&self.k.expect("Verifying keys before generating")));
+    self.spend = Some(Ed25519Sha::to_public_key(&self.k.expect("Verifying keys before generating")) + other);
   }
 }
