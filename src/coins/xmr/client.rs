@@ -108,6 +108,6 @@ impl UnscriptedClient for XmrClient {
     }
 
     // Get past the result and option. The refund transaction should both exist and not cause an RPC error in this test env
-    self.rpc.get_transaction(&self.refund_tx_hex_hash).await.unwrap().unwrap().1 > 0
+    self.rpc.get_height().await - self.rpc.get_transaction(&self.refund_tx_hex_hash).await.unwrap().unwrap().1 > 0
   }
 }

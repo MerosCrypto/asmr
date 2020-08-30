@@ -105,11 +105,7 @@ impl XmrRpc {
             deserialize(
               &hex::decode(&txs.txs[0].as_hex).expect("Monero RPC returned a non-hex transaction")
             ).expect("Monero returned a transaction we couldn't deserialize"),
-            if txs.txs[0].block_height < 1 {
-              txs.txs[0].block_height
-            } else {
-              self.get_height().await - txs.txs[0].block_height + 1
-            }
+            txs.txs[0].block_height
           )
         )
       }
@@ -127,7 +123,8 @@ impl XmrRpc {
     }
 
     let mut block = self.height_at_start - 1;
-    let result;
+    let mut tx_hash;
+    let mut result;
     'outer: loop {
       while self.get_height().await > block {
         for hash in deserialize::<Block>(
@@ -147,16 +144,20 @@ impl XmrRpc {
             ).result.blob
           ).expect("Monero returned a non-hex blob")
         ).expect("Monero returned a block we couldn't deserialize").tx_hashes {
-          let tx = self.get_transaction(&hex::encode(hash.as_bytes()))
+          tx_hash = hex::encode(hash.as_bytes());
+          result = self.get_transaction(&tx_hash)
             .await?
-            .expect("Couldn't get transaction included in block")
-            .0;
+            .expect("Couldn't get transaction included in block");
 
-          let outputs = tx.prefix.check_outputs(pair, 0..1, 0..1);
+          let outputs = result.0.prefix.check_outputs(pair, 0..1, 0..1);
           if outputs.is_err() || (outputs.unwrap().len() == 0) {
             continue;
           }
-          result = tx;
+
+          if block != result.1 {
+            anyhow::bail!("Transaction's confirmation height changed");
+          }
+
           break 'outer;
         }
         block += 1;
@@ -164,11 +165,16 @@ impl XmrRpc {
       tokio::time::delay_for(std::time::Duration::from_secs(10)).await;
     }
 
-    while self.get_height().await < block + CONFIRMATIONS {
+    let mut confirmation_height = result.1;
+    while self.get_height().await - confirmation_height < CONFIRMATIONS {
       tokio::time::delay_for(std::time::Duration::from_secs(10)).await;
+      confirmation_height = self.get_transaction(&tx_hash).await?.unwrap().1;
+      if confirmation_height != block {
+        anyhow::bail!("Transaction's confirmation height changed");
+      }
     }
 
-    Ok(result)
+    Ok(result.0)
   }
 
   pub async fn publish(&self, tx: &[u8]) -> anyhow::Result<()> {
