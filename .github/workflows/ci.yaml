@@ -1,0 +1,93 @@
+name: Tests
+
+on: [push, pull_request]
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Install Rust nightly
+        uses: actions-rs/toolchain@v1
+        with:
+          override: true
+
+      - name: Cargo cache
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('rust-toolchain') }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-${{ hashFiles('rust-toolchain') }}-
+
+      - name: Compile
+        run: cargo rustc -- -D warnings
+
+      - name: Unit tests
+        run: RUST_LOG=asmr=debug cargo test
+
+  coin-tests:
+    runs-on: ubuntu-latest
+    needs: unit-tests
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Install Rust nightly
+        uses: actions-rs/toolchain@v1
+        with:
+          override: true
+
+      - name: Install coin dependencies
+        run: |
+          sudo apt-get update
+          # Electrum dependencies
+          sudo apt-get install libsecp256k1-0 python3-setuptools python3-cryptography
+          # Nano dependencies
+          curl -L 'https://s3.us-east-2.amazonaws.com/repo.nano.org/artifacts/boost-Linux-gcc-1.70-full.tgz' | tar -C / -xzf -
+
+      - name: Cargo cache
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('rust-toolchain') }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-${{ hashFiles('rust-toolchain') }}-
+
+      - name: Electrs cache
+        uses: actions/cache@v2
+        with:
+          path: ~/coins/bitcoin/electrs/target/debug/electrs
+          key: ${{ runner.os }}-electrs-v0.8.5
+
+      - name: Nano-node cache
+        uses: actions/cache@v2
+        with:
+          path: ~/coins/nano/nano_node
+          key: ${{ runner.os }}-nano-node-develop
+
+      - name: Pip cache
+        uses: actions/cache@v2
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-electrum-4.0.2
+          restore-keys: |
+            ${{ runner.os }}-pip-electrum-
+            ${{ runner.os }}-pip-
+
+      - name: Setup Bitcoin
+        run: ./ci/setup-coins/bitcoin.sh
+
+      - name: Setup Nano
+        run: ./ci/setup-coins/nano.sh
+
+      - name: Run Bitcoin-Nano swap tests
+        run: RUST_LOG=asmr=debug cargo test --features test_bitcoin_node,test_nano_node -- btc_and_nano --nocapture
