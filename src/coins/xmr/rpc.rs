@@ -2,13 +2,19 @@ use std::fmt::Debug;
 
 use log::debug;
 
+use rand::{rngs::OsRng, RngCore};
+
 use serde::{Serialize, Deserialize, de::DeserializeOwned};
 use serde_json::json;
 
 use reqwest;
+use digest_auth::AuthContext;
 
 use monero::{
-  util::key::ViewPair,
+  util::{
+    key::{PublicKey, ViewPair},
+    address::Address
+  },
   blockdata::{
     transaction::Transaction,
     block::Block
@@ -16,11 +22,21 @@ use monero::{
   consensus::encode::deserialize
 };
 
-use crate::coins::xmr::engine::{CONFIRMATIONS, XmrConfig};
+use crate::{
+  crypt_engines::{CryptEngine, ed25519_engine::Ed25519Sha},
+  coins::xmr::engine::*
+};
+
+#[derive(Deserialize, Debug)]
+struct JsonRpcResponse<T> {
+  result: T
+}
 
 pub struct XmrRpc {
   daemon: String,
   wallet: String,
+  wallet_user: String,
+  wallet_pass: String,
   height_at_start: isize,
   #[cfg(test)]
   wallet_address: String
@@ -30,7 +46,9 @@ impl XmrRpc {
   pub async fn new(config: &XmrConfig) -> anyhow::Result<XmrRpc> {
     let mut result = XmrRpc {
       daemon: config.daemon.clone() + "/",
-      wallet: config.wallet.clone() + "/",
+      wallet: config.wallet.clone() + "/json_rpc",
+      wallet_user: config.wallet_user.clone(),
+      wallet_pass: config.wallet_pass.clone(),
       height_at_start: -1,
       // TODO: Grab an address from the Monero wallet
       #[cfg(test)]
@@ -46,8 +64,8 @@ impl XmrRpc {
   >(&self, method: &str, params: Option<Params>) -> anyhow::Result<Response> {
     let client = reqwest::Client::new();
     let mut builder = client.post(&(self.daemon.clone() + method));
-    if params.is_some() {
-      builder = builder.json(params.as_ref().unwrap());
+    if let Some(params) = params.as_ref() {
+      builder = builder.json(params);
     }
     let res = builder
       .send()
@@ -55,6 +73,44 @@ impl XmrRpc {
       .text()
       .await?;
     debug!("RPC call to {} with {:?} returned {}", method, params, &res);
+    Ok(
+      serde_json::from_str(&res)
+        .map_err(|_| anyhow::anyhow!("Request failed due to incompatible RPC version"))?
+    )
+  }
+
+  async fn wallet_call<
+    Params: Serialize + Debug,
+    Response: DeserializeOwned + Debug
+  >(&self, method: &str, params: Params) -> anyhow::Result<JsonRpcResponse<Response>> {
+    let client = reqwest::Client::new();
+
+    let mut prompt = digest_auth::parse(
+      client
+        .post(&self.wallet)
+        .send()
+        .await?
+        .headers()["www-authenticate"]
+        .to_str()?
+    )?;
+    let context = AuthContext::new_post::<_, _, _, &[u8]>(self.wallet_user.clone(), self.wallet_pass.clone(), "/json_rpc", None);
+    let answer = prompt.respond(&context)?.to_header_string();
+
+    let res = client
+      .post(&self.wallet)
+      .header("Authorization", answer)
+      .json(&json!({
+        "jsonrpc": "2.0",
+        "id": (),
+        "method": method,
+        "params": params
+      }))
+      .send()
+      .await?
+      .text()
+      .await?;
+
+    debug!("Wallet RPC call to {} with {:?} returned {}", method, params, &res);
     Ok(
       serde_json::from_str(&res)
         .map_err(|_| anyhow::anyhow!("Request failed due to incompatible RPC version"))?
@@ -177,20 +233,58 @@ impl XmrRpc {
     Ok(result.0)
   }
 
-  pub async fn publish(&self, tx: &[u8]) -> anyhow::Result<()> {
+  pub async fn claim(
+    &self,
+    spend_key: <Ed25519Sha as CryptEngine>::PrivateKey,
+    view_key: <Ed25519Sha as CryptEngine>::PrivateKey,
+    destination: &str,
+    amount: u64
+  ) -> anyhow::Result<()> {
     #[derive(Deserialize, Debug)]
-    struct PublishResponse {
-      double_spend: bool,
-      status: String
-    };
-
-    let res: PublishResponse = self.rpc_call("send_raw_transaction", Some(json!({
-      "tx_as_hex": hex::encode(tx)
-    }))).await?;
-
-    if (res.double_spend) || (res.status != "OK") {
-      anyhow::bail!("Double spend/not okay");
+    struct WalletResponse {
+      address: String
     }
+    #[derive(Deserialize, Debug)]
+    struct TransactionResponse {
+      tx_hash: String
+    }
+
+    let address = Address::standard(
+      NETWORK,
+      PublicKey {
+        point: Ed25519Sha::to_public_key(&spend_key).compress()
+      },
+      PublicKey {
+        point: Ed25519Sha::to_public_key(&view_key).compress()
+      }
+    ).to_string();
+
+    let mut name = [0; 32];
+    OsRng.fill_bytes(&mut name);
+
+    let res: WalletResponse = self.wallet_call("generate_from_keys", json!({
+        "restore_height": self.height_at_start,
+        "filename": hex::encode(&name),
+        "address": address,
+        "spendkey": hex::encode(&Ed25519Sha::private_key_to_bytes(&spend_key)),
+        "viewkey": hex::encode(&Ed25519Sha::private_key_to_bytes(&view_key)),
+        "password": ""
+      })
+    ).await.expect("Couldn't create the wallet").result;
+    if res.address != address {
+      anyhow::bail!("Generated a different wallet");
+    }
+
+    tokio::time::delay_for(std::time::Duration::from_secs(10)).await;
+
+    let _: TransactionResponse = self.wallet_call("transfer", json!({
+      "destinations": [{
+        "address": destination,
+        // TODO: Calculate a proper fee
+        "amount": amount / 2
+      }]
+    })).await.expect("Couldn't transfer the Monero").result;
+
     Ok(())
   }
 

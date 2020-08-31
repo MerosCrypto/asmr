@@ -32,6 +32,7 @@ serde_json = "1.0.56"
 reqwest = { version = "0.10.6", features = ["json"] }
 bitcoin = "0.23.0"
 monero = "0.8.1"
+digest_auth = "0.2.3"
 
 [features]
 no_confs = []

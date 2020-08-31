@@ -31,7 +31,8 @@ use crate::{
 
 pub struct XmrVerifier {
   engine: XmrEngine,
-  rpc: XmrRpc
+  rpc: XmrRpc,
+  amount: Option<u64>
 }
 
 impl XmrVerifier {
@@ -40,7 +41,8 @@ impl XmrVerifier {
     Ok(
       XmrVerifier {
         engine: XmrEngine::new(),
-        rpc: XmrRpc::new(&config).await?
+        rpc: XmrRpc::new(&config).await?,
+        amount: None
       }
     )
   }
@@ -140,7 +142,7 @@ impl UnscriptedVerifier for XmrVerifier {
     }
 
     if !cfg!(test) {
-      print!("You will receive {} XMR. Continue (yes/no)? ", amount);
+      print!("You will receive {} atomic units of XMR. Continue (yes/no)? ", amount);
       std::io::stdout().flush().expect("Failed to flush stdout");
       let mut line = String::new();
       std::io::stdin().read_line(&mut line).expect("Couldn't read from stdin");
@@ -148,18 +150,21 @@ impl UnscriptedVerifier for XmrVerifier {
         anyhow::bail!("User didn't confirm XMR amount");
       }
     }
+    self.amount = Some(amount);
 
     Ok(())
   }
 
   async fn finish<Host: ScriptedHost >(&mut self, host: &Host) -> anyhow::Result<()> {
-    println!("Recovered spend key: {}", hex::encode(
-      Ed25519Sha::private_key_to_bytes(
-        &(Ed25519Sha::little_endian_bytes_to_private_key(host.recover_final_key().await?)? +
-        self.engine.k.expect("Finishing before generating keys"))
-      )
-    ));
-    println!("View key:            {}", hex::encode(self.engine.view.as_bytes()));
-    Ok(())
+    self.rpc.claim(
+      (
+        Ed25519Sha::little_endian_bytes_to_private_key(host.recover_final_key().await?)? +
+        self.engine.k.expect("Finishing before generating keys")
+      ),
+      self.engine.view,
+      // TODO: Use the actual destination address
+      "42L9GkQeerChpA4rz4MTagL5mBGbEnvPzWLRL5vfJTr3bd8Diz6okcpd9vkxerLXHADdPMbTW9Xk8JcWj8WbeGEmD3aKdsi",
+      self.amount.expect("Finishing before verifying the XMR send")
+    ).await
   }
 }

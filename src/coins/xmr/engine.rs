@@ -31,7 +31,9 @@ pub struct XmrKeys {
 #[derive(Deserialize)]
 pub struct XmrConfig {
   pub daemon: String,
-  pub wallet: String
+  pub wallet: String,
+  pub wallet_user: String,
+  pub wallet_pass: String
 }
 
 pub struct XmrEngine {
