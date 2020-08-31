@@ -95,12 +95,8 @@ impl BtcRpc {
   }
 
   pub async fn get_fee_per_byte(&self) -> anyhow::Result<u64> {
-    // Electrum doesn't return a valid fee amount for testnet
-    if cfg!(test) {
-      Ok(100)
-    } else {
-      self.rpc_call("getfeerate", &json!([])).await
-    }
+    // TODO: Revisit. Electrum returns fees in sats/kvByte and our size calculations are off
+    Ok(100)
   }
 
   pub async fn get_transaction(&self, hash_hex: &str) -> anyhow::Result<Transaction> {

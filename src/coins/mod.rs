@@ -1,5 +1,6 @@
 pub mod btc;
 pub mod meros;
+pub mod nano;
 
 use std::marker::PhantomData;
 
@@ -70,6 +71,7 @@ pub trait UnscriptedClient {
 #[enum_dispatch]
 pub enum AnyUnscriptedClient {
   Meros(meros::client::MerosClient),
+  Nano(nano::client::NanoClient),
 }
 
 #[async_trait]
@@ -120,4 +122,5 @@ pub trait UnscriptedVerifier: Send + Sync {
 #[enum_dispatch]
 pub enum AnyUnscriptedVerifier {
   Meros(meros::verifier::MerosVerifier),
+  Nano(nano::verifier::NanoVerifier),
 }
