@@ -1,0 +1,8 @@
+{
+  "rpc_url": "http://[::1]:55000/",
+  "destination": "nano_3caknohn7t71qxw4zr7pj3ng36nqahhb7cfnd5rm3u3ppiiqq6zyxhikb388",
+  "refund": "nano_1oo84wq1g8s1ejwb46s48qk5sbs76aea5b9r6nm586cb9usz1xuegomdsriw",
+
+  "wallet": "AD75B50A05284D667685815203CFE2021C0917529F1DEF249D2AABA6EFC97EB8",
+  "wallet_address": "nano_13k7xe7q5pbrex7rytx9zpzrckmc5nw16gb7ct464df9f53u6ygusokfh1ap"
+}

@@ -25,7 +25,8 @@ use crate::{
   coins::{
     *,
     btc::{host::BtcHost, verifier::BtcVerifier},
-    meros::{client::MerosClient, verifier::MerosVerifier}
+    meros::{client::MerosClient, verifier::MerosVerifier},
+    nano::{client::NanoClient, verifier::NanoVerifier}
   },
   cli::{ScriptedCoin, UnscriptedCoin, Cli}
 };
@@ -52,6 +53,7 @@ async fn main() {
     }.expect("Failed to create scripted host");
     let mut unscripted_verifier: AnyUnscriptedVerifier = match opts.pair.unscripted {
       UnscriptedCoin::Meros => MerosVerifier::new(&unscripted_config).map(Into::into),
+      UnscriptedCoin::Nano => NanoVerifier::new(&unscripted_config).map(Into::into),
     }.expect("Failed to create unscripted verifier");
 
     // Have the host also host the server socket
@@ -83,7 +85,7 @@ async fn main() {
         Ok(Err(_)) => true,
         // Normal error
         Ok(Ok(Err(err))) => {
-          error!("Error attempting host swap: {}", err);
+          error!("Error attempting host swap: {:?}", err);
           true
         },
         // Success
@@ -98,6 +100,7 @@ async fn main() {
   if opts.host_or_client.is_client() {
     let mut unscripted_client: AnyUnscriptedClient = match opts.pair.unscripted {
       UnscriptedCoin::Meros => MerosClient::new(&unscripted_config).map(Into::into),
+      UnscriptedCoin::Nano => NanoClient::new(&unscripted_config).map(Into::into),
     }.expect("Failed to create unscripted client");
     let mut scripted_verifier: AnyScriptedVerifier = match opts.pair.scripted {
       ScriptedCoin::Bitcoin => BtcVerifier::new(&scripted_config).map(Into::into),
@@ -121,7 +124,7 @@ async fn main() {
       Ok(Err(_)) => true,
       // Normal error
       Ok(Ok(Err(err))) => {
-        error!("Error attempting client swap: {}", err);
+        error!("Error attempting client swap: {:?}", err);
         true
       },
       // Success
@@ -175,7 +178,7 @@ async fn host(opts: Cli, mut stream: TcpStream, host: &mut AnyScriptedHost, veri
 
   // Have funds enter the system
   // We use our own intermediate address to ensure the transaction isn't malleable, a problem with BTC solved via SegWit
-  println!("Send to {} and this will automatically proceed when funds are received.", host.generate_deposit_address());
+  println!("Send to {} and this will automatically proceed when funds are confirmed.", host.generate_deposit_address());
 
   /*
     Now that we've exchanged the relevant keys, it's time to start on the transactions
@@ -264,7 +267,7 @@ async fn client(opts: Cli, mut stream: TcpStream, client: &mut AnyUnscriptedClie
   verifier.verify_and_wait_for_lock().await.context("Couldn't verify the lock")?;
 
   // Now that the lock is on chain and we have everything we need to buy its funds, we need to publish our transaction
-  println!("Send to {} and this will automatically proceed when funds are received.", client.get_address());
+  println!("Send to {} and this will automatically proceed when funds are confirmed.", client.get_address());
   client.wait_for_deposit().await?;
 
   // Now, receive the swap secret and finish buying the funds locked by the host

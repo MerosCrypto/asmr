@@ -22,7 +22,7 @@ pub const SWAP_CUTOFF_BLOCKS: isize = 4;
 #[cfg(not(feature = "no_confs"))]
 pub const CONFIRMATIONS: isize = 1;
 #[cfg(feature = "no_confs")]
-pub const CONFIRMATIONS: isize = 0;
+pub const CONFIRMATIONS: isize = -1;
 
 #[cfg(not(test))]
 pub const NETWORK: Network = Network::Testnet;
