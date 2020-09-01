@@ -1,6 +1,11 @@
 # Atomic Swaps on Meros - Proof of Concept
 
-A proof-of-concept implementation of [Bitcoin-Monero Cross-chain Atomic Swap](https://github.com/h4sh3d/xmr-btc-atomic-swap/raw/master/whitepaper/xmr-btc.pdf), initially targeting Bitcoin and Meros. Despite this being protocol being designed for Monero, the cryptography within is directly applicable to any coins utilizing Ed25519. In accordance, this implementation was designed to be extremely easy to expand, so adding support for Monero/Nano should only take a few days (and the same goes for adding support for a different pair option than BTC, such as ETH).
+A proof-of-concept implementation of [Bitcoin-Monero Cross-chain Atomic Swap](https://github.com/h4sh3d/xmr-btc-atomic-swap/raw/master/whitepaper/xmr-btc.pdf), initially targeting Bitcoin and Meros. Despite this being protocol being designed for Monero, the cryptography within is directly applicable to nearly all coins without scripting functionality. In accordance, this implementation was designed to be extremely easy to expand, so adding support for new coins on either side should only take a few days.
+
+Currently, the following coins are supported:
+- Bitcoin
+- Meros
+- Nano
 
 While this is designed to be complete and accurate, it offers no security guarantees. This has not been audited and should be used at your own risk.
 
