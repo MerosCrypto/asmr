@@ -86,7 +86,7 @@ impl UnscriptedClient for XmrClient {
     Ok(())
   }
 
-  async fn refund<Verifier: ScriptedVerifier >(self, verifier: Verifier) -> anyhow::Result<()> {
+  async fn refund<Verifier: ScriptedVerifier>(self, verifier: Verifier) -> anyhow::Result<()> {
     if !self.deposited {
       Ok(())
     } else {

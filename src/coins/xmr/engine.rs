@@ -327,16 +327,15 @@ impl XmrEngine {
     }
 
     // Wait ten blocks for the transaction to unlock
-    let confirmation_height = self.get_transaction(
+    while self.get_height().await - self.get_transaction(
       self.deposit.as_ref().expect("Claiming Monero before knowing of its deposit")
-    ).await?.unwrap().1;
-    while self.get_height().await - confirmation_height < 10 {
+    ).await?.unwrap().1 < 10 {
       #[cfg(test)]
       self.mine_block().await?;
 
       tokio::time::delay_for(std::time::Duration::from_secs(10)).await;
     }
-    
+
     // Trigger a rescan
     let _: EmptyResponse = self.wallet_call("rescan_blockchain", json!({})).await?.result;
 
