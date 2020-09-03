@@ -10,3 +10,5 @@ mod swap;
 mod btc_and_meros;
 #[cfg(all(feature = "test_bitcoin_node", feature = "test_nano_node"))]
 mod btc_and_nano;
+#[cfg(all(feature = "test_bitcoin_node", feature = "test_monero_node"))]
+mod btc_and_xmr;

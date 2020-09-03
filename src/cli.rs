@@ -59,6 +59,8 @@ pub enum UnscriptedCoin {
   #[enumeration(alias = "mr")]
   Meros,
   Nano,
+  #[enumeration(alias = "xmr")]
+  Monero
 }
 
 enum AnyCoin {

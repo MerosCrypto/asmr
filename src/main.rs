@@ -26,7 +26,8 @@ use crate::{
     *,
     btc::{host::BtcHost, verifier::BtcVerifier},
     meros::{client::MerosClient, verifier::MerosVerifier},
-    nano::{client::NanoClient, verifier::NanoVerifier}
+    nano::{client::NanoClient, verifier::NanoVerifier},
+    xmr::{client::XmrClient, verifier::XmrVerifier}
   },
   cli::{ScriptedCoin, UnscriptedCoin, Cli}
 };
@@ -54,6 +55,7 @@ async fn main() {
     let mut unscripted_verifier: AnyUnscriptedVerifier = match opts.pair.unscripted {
       UnscriptedCoin::Meros => MerosVerifier::new(&unscripted_config).map(Into::into),
       UnscriptedCoin::Nano => NanoVerifier::new(&unscripted_config).map(Into::into),
+      UnscriptedCoin::Monero => XmrVerifier::new(&unscripted_config).await.map(Into::into)
     }.expect("Failed to create unscripted verifier");
 
     // Have the host also host the server socket
@@ -101,6 +103,7 @@ async fn main() {
     let mut unscripted_client: AnyUnscriptedClient = match opts.pair.unscripted {
       UnscriptedCoin::Meros => MerosClient::new(&unscripted_config).map(Into::into),
       UnscriptedCoin::Nano => NanoClient::new(&unscripted_config).map(Into::into),
+      UnscriptedCoin::Monero => XmrClient::new(&unscripted_config).await.map(Into::into)
     }.expect("Failed to create unscripted client");
     let mut scripted_verifier: AnyScriptedVerifier = match opts.pair.scripted {
       ScriptedCoin::Bitcoin => BtcVerifier::new(&scripted_config).map(Into::into),

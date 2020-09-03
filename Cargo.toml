@@ -33,12 +33,15 @@ reqwest = { version = "0.10.6", features = ["json"] }
 bitcoin = "0.23.0"
 nanocurrency-types = "0.3.19"
 num_cpus = "1.13.0"
+monero = "0.8.1"
+digest_auth = "0.2.3"
 
 [features]
 no_confs = []
 test_bitcoin_node = []
 test_meros_node = []
 test_nano_node = []
+test_monero_node = []
 
 # Always optimize dependencies
 [profile.dev.package."*"]
