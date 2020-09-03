@@ -33,7 +33,9 @@ pub struct XmrConfig {
   pub daemon: String,
   pub wallet: String,
   pub wallet_user: String,
-  pub wallet_pass: String
+  pub wallet_pass: String,
+  pub destination: String,
+  pub refund: String
 }
 
 pub struct XmrEngine {

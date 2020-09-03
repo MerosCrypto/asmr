@@ -38,8 +38,9 @@ pub struct XmrRpc {
   wallet_user: String,
   wallet_pass: String,
   height_at_start: isize,
+  deposit: Option<String>,
   #[cfg(test)]
-  wallet_address: String
+  wallet_address: Option<String>
 }
 
 impl XmrRpc {
@@ -50,9 +51,9 @@ impl XmrRpc {
       wallet_user: config.wallet_user.clone(),
       wallet_pass: config.wallet_pass.clone(),
       height_at_start: -1,
-      // TODO: Grab an address from the Monero wallet
+      deposit: None,
       #[cfg(test)]
-      wallet_address: "".to_string()
+      wallet_address: None
     };
     result.height_at_start = result.get_height().await;
     Ok(result)
@@ -122,20 +123,7 @@ impl XmrRpc {
     struct HeightResponse {
       height: isize
     };
-
-    let res: HeightResponse = self.rpc_call::<Option<()>, _>("get_height", None).await.expect("Failed to get the height");
-    res.height
-  }
-
-  pub async fn get_fee_per_byte(&self) -> anyhow::Result<(u64, u64)> {
-    #[derive(Deserialize, Debug)]
-    struct FeeInfo {
-      fee: u64,
-      quantization_mask: u64
-    };
-
-    let res: FeeInfo = self.rpc_call::<Option<()>, _>("get_fee_estimate", None).await?;
-    Ok((res.fee, res.quantization_mask))
+    self.rpc_call::<Option<()>, HeightResponse>("get_height", None).await.expect("Failed to get the height").height
   }
 
   pub async fn get_transaction(&self, hash_hex: &str) -> anyhow::Result<Option<(Transaction, isize)>> {
@@ -168,7 +156,7 @@ impl XmrRpc {
     )
   }
 
-  pub async fn wait_for_deposit(&self, pair: &ViewPair) -> anyhow::Result<Transaction> {
+  pub async fn wait_for_deposit(&mut self, pair: &ViewPair) -> anyhow::Result<Transaction> {
     #[derive(Deserialize, Debug)]
     struct BlockResponse {
       blob: String
@@ -230,6 +218,7 @@ impl XmrRpc {
       }
     }
 
+    self.deposit = Some(tx_hash);
     Ok(result.0)
   }
 
@@ -237,16 +226,15 @@ impl XmrRpc {
     &self,
     spend_key: <Ed25519Sha as CryptEngine>::PrivateKey,
     view_key: <Ed25519Sha as CryptEngine>::PrivateKey,
-    destination: &str,
-    amount: u64
+    destination: &str
   ) -> anyhow::Result<()> {
     #[derive(Deserialize, Debug)]
     struct WalletResponse {
       address: String
     }
     #[derive(Deserialize, Debug)]
-    struct TransactionResponse {
-      tx_hash: String
+    struct SweepResponse {
+      tx_hash_list: Vec<String>
     }
 
     let address = Address::standard(
@@ -277,27 +265,70 @@ impl XmrRpc {
 
     tokio::time::delay_for(std::time::Duration::from_secs(10)).await;
 
-    let _: TransactionResponse = self.wallet_call("transfer", json!({
-      "destinations": [{
-        "address": destination,
-        // TODO: Calculate a proper fee
-        "amount": amount / 2
-      }]
+    // Wait ten blocks for the transaction to unlock
+    let confirmation_height = self.get_transaction(
+      self.deposit.as_ref().expect("Claiming Monero before knowing of its deposit")
+    ).await?.unwrap().1;
+    while self.get_height().await - confirmation_height < 10 {
+      #[cfg(test)]
+      self.mine_block().await?;
+
+      tokio::time::delay_for(std::time::Duration::from_secs(10)).await;
+    }
+
+    let _: SweepResponse = self.wallet_call("sweep_all", json!({
+      "address": destination,
     })).await.expect("Couldn't transfer the Monero").result;
 
     Ok(())
   }
 
   #[cfg(test)]
-  pub async fn send_from_wallet(&self, address: &str) -> anyhow::Result<()> {
-    todo!()
+  pub async fn send_from_wallet(&mut self, address: &str) -> anyhow::Result<()> {
+    #[derive(Deserialize, Debug)]
+    struct AddressResponse {
+      address: String
+    }
+    #[derive(Deserialize, Debug)]
+    struct TransactionResponse {
+      tx_hash: String
+    }
+
+    // Create a new wallet
+    let mut name = [0; 32];
+    OsRng.fill_bytes(&mut name);
+    let _: () = self.wallet_call("create_wallet", json!({
+      "filename": hex::encode(&name),
+      "language": "English"
+    })).await.expect("Couldn't create a new wallet").result;
+
+    let res: AddressResponse = self.wallet_call("get_address", json!({
+      "account_index": 0
+    })).await.expect("Couldn't get the address").result;
+    self.wallet_address = Some(res.address);
+
+    // Mine 70 blocks to it (coin maturity happens at 60)
+    for _ in 0 .. 7 {
+      self.mine_block().await?;
+    }
+
+    // Send to the specified address
+    let _: TransactionResponse = self.wallet_call("transfer", json!({
+      "destinations": [{
+        "address": address,
+        "amount": (1000000000000 as u64)
+      }]
+    })).await.expect("Couldn't transfer the Monero for testing purposes").result;
+    self.mine_block().await?;
+
+    Ok(())
   }
 
   #[cfg(test)]
   pub async fn mine_block(&self) -> anyhow::Result<()> {
     self.rpc_call("generateblocks", Some(json!({
       "wallet_address": self.wallet_address,
-      "amount_of_blocks": 1
+      "amount_of_blocks": 10
     }))).await
   }
 }

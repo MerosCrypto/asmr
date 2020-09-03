@@ -7,7 +7,6 @@ use std::{
 };
 
 use async_trait::async_trait;
-use hex;
 
 use curve25519_dalek::scalar::Scalar;
 
@@ -32,7 +31,7 @@ use crate::{
 pub struct XmrVerifier {
   engine: XmrEngine,
   rpc: XmrRpc,
-  amount: Option<u64>
+  destination: String
 }
 
 impl XmrVerifier {
@@ -42,7 +41,7 @@ impl XmrVerifier {
       XmrVerifier {
         engine: XmrEngine::new(),
         rpc: XmrRpc::new(&config).await?,
-        amount: None
+        destination: config.destination
       }
     )
   }
@@ -150,7 +149,6 @@ impl UnscriptedVerifier for XmrVerifier {
         anyhow::bail!("User didn't confirm XMR amount");
       }
     }
-    self.amount = Some(amount);
 
     Ok(())
   }
@@ -162,9 +160,7 @@ impl UnscriptedVerifier for XmrVerifier {
         self.engine.k.expect("Finishing before generating keys")
       ),
       self.engine.view,
-      // TODO: Use the actual destination address
-      "42L9GkQeerChpA4rz4MTagL5mBGbEnvPzWLRL5vfJTr3bd8Diz6okcpd9vkxerLXHADdPMbTW9Xk8JcWj8WbeGEmD3aKdsi",
-      self.amount.expect("Finishing before verifying the XMR send")
+      &self.destination
     ).await
   }
 }

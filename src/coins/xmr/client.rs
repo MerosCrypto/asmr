@@ -23,8 +23,9 @@ use crate::{
 pub struct XmrClient {
   engine: XmrEngine,
   rpc: XmrRpc,
-  refund_address: String,
-  refund_tx_hex_hash: String
+  #[cfg(test)]
+  refund_pair: Option<ViewPair>,
+  refund_address: String
 }
 
 impl XmrClient {
@@ -33,8 +34,9 @@ impl XmrClient {
     Ok(XmrClient{
       engine: XmrEngine::new(),
       rpc: XmrRpc::new(&config).await?,
-      refund_address: "".to_string(),
-      refund_tx_hex_hash: "".to_string()
+      #[cfg(test)]
+      refund_pair: None,
+      refund_address: config.refund
     })
   }
 }
@@ -94,13 +96,32 @@ impl UnscriptedClient for XmrClient {
   async fn refund<Verifier: ScriptedVerifier >(self, _verifier: Verifier) -> anyhow::Result<()> {todo!()}
 
   #[cfg(test)]
-  fn override_refund_with_random_address(&mut self) {todo!()}
+  fn override_refund_with_random_address(&mut self) {
+    self.refund_pair = Some(ViewPair {
+      view: PrivateKey {
+        scalar: Ed25519Sha::new_private_key()
+      },
+      spend: PublicKey {
+        point: Ed25519Sha::to_public_key(&Ed25519Sha::new_private_key()).compress()
+      }
+    });
+    self.refund_address = Address::from_viewpair(NETWORK, self.refund_pair.as_ref().unwrap()).to_string();
+  }
+
   #[cfg(test)]
-  async fn send_from_node(&mut self) -> anyhow::Result<()> {todo!()}
+  async fn send_from_node(&mut self) -> anyhow::Result<()> {
+    let address = self.get_address();
+    self.rpc.send_from_wallet(&address).await
+  }
   #[cfg(test)]
-  async fn advance_consensus(&self) -> anyhow::Result<()> {todo!()}
+  async fn advance_consensus(&self) -> anyhow::Result<()> {
+    self.rpc.mine_block().await
+  }
   #[cfg(test)]
-  fn get_refund_address(&self) -> String {todo!()}
+  fn get_refund_address(&self) -> String {
+    self.refund_address.clone()
+  }
+
   #[cfg(test)]
   async fn get_if_funded(self, address: &str) -> bool {
     if address != self.refund_address {
@@ -108,6 +129,7 @@ impl UnscriptedClient for XmrClient {
     }
 
     // Get past the result and option. The refund transaction should both exist and not cause an RPC error in this test env
-    self.rpc.get_height().await - self.rpc.get_transaction(&self.refund_tx_hex_hash).await.unwrap().unwrap().1 > 0
+    //self.rpc.get_height().await - self.rpc.get_transaction(&self.refund_tx_hex_hash).await.unwrap().unwrap().1 > 0
+    todo!()
   }
 }
