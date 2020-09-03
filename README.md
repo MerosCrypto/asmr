@@ -6,6 +6,7 @@ Currently, the following coins are supported:
 - Bitcoin
 - Meros
 - Nano
+- Monero
 
 While this is designed to be complete and accurate, it offers no security guarantees. This has not been audited and should be used at your own risk.
 
