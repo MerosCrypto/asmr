@@ -1,5 +1,6 @@
 use std::{
   marker::PhantomData,
+  convert::TryInto,
   path::Path,
   fs::File
 };
@@ -25,7 +26,9 @@ pub struct XmrClient {
   rpc: XmrRpc,
   #[cfg(test)]
   refund_pair: Option<ViewPair>,
-  refund_address: String
+  refund_address: String,
+  address: Option<String>,
+  deposited: bool
 }
 
 impl XmrClient {
@@ -36,7 +39,9 @@ impl XmrClient {
       rpc: XmrRpc::new(&config).await?,
       #[cfg(test)]
       refund_pair: None,
-      refund_address: config.refund
+      refund_address: config.refund,
+      address: None,
+      deposited: false
     })
   }
 }
@@ -72,7 +77,7 @@ impl UnscriptedClient for XmrClient {
   }
 
   fn get_address(&mut self) -> String {
-    Address::standard(
+    self.address = Some(Address::standard(
       NETWORK,
       PublicKey {
         point: self.engine.spend.expect("Getting address before verifying DLEQ proof").compress()
@@ -80,20 +85,38 @@ impl UnscriptedClient for XmrClient {
       PublicKey {
         point: Ed25519Sha::to_public_key(&self.engine.view).compress()
       }
-    ).to_string()
+    ).to_string());
+    self.address.clone().unwrap()
   }
 
   async fn wait_for_deposit(&mut self) -> anyhow::Result<()> {
-    self.rpc.wait_for_deposit(&ViewPair {
+    self.rpc.get_deposit(&ViewPair {
       spend: PublicKey {
         point: self.engine.spend.expect("Waiting for transaction before verifying DLEQ proof").compress()
       },
       view: PrivateKey::from_scalar(self.engine.view)
-    }).await?;
+    }, true).await?.unwrap();
+    self.deposited = true;
     Ok(())
   }
 
-  async fn refund<Verifier: ScriptedVerifier >(self, _verifier: Verifier) -> anyhow::Result<()> {todo!()}
+  async fn refund<Verifier: ScriptedVerifier >(self, verifier: Verifier) -> anyhow::Result<()> {
+    if self.address.is_none() || (!self.deposited) {
+      Ok(())
+    } else {
+      if let Some(recovered_key) = verifier.claim_refund_or_recover_key().await? {
+        self.rpc.claim(
+          (
+            Ed25519Sha::little_endian_bytes_to_private_key(recovered_key)? +
+            self.engine.k.expect("Finishing before generating keys")
+          ),
+          self.engine.view,
+          &self.refund_address
+        ).await?;
+      }
+      Ok(())
+    }
+  }
 
   #[cfg(test)]
   fn override_refund_with_random_address(&mut self) {
@@ -119,17 +142,22 @@ impl UnscriptedClient for XmrClient {
   }
   #[cfg(test)]
   fn get_refund_address(&self) -> String {
-    self.refund_address.clone()
+    // Actually return the ViewPair
+    hex::encode(Ed25519Sha::private_key_to_bytes(&self.refund_pair.as_ref().unwrap().view.scalar)) +
+    &hex::encode(&self.refund_pair.as_ref().unwrap().spend.point.as_bytes())
   }
 
   #[cfg(test)]
-  async fn get_if_funded(self, address: &str) -> bool {
-    if address != self.refund_address {
-      panic!("Tried to get if an address other than our refund address was funded. This is unsupported on Monero");
-    }
-
-    // Get past the result and option. The refund transaction should both exist and not cause an RPC error in this test env
-    //self.rpc.get_height().await - self.rpc.get_transaction(&self.refund_tx_hex_hash).await.unwrap().unwrap().1 > 0
-    todo!()
+  async fn get_if_funded(mut self, pair: &str) -> bool {
+    let pair = hex::decode(pair).unwrap();
+    let view_pair = ViewPair {
+      view: PrivateKey {
+        scalar: Ed25519Sha::bytes_to_private_key(pair[0 .. 32].try_into().unwrap()).unwrap()
+      },
+      spend: PublicKey {
+        point: Ed25519Sha::bytes_to_public_key(pair[32..].try_into().unwrap()).unwrap().compress()
+      },
+    };
+    self.rpc.get_deposit(&view_pair, false).await.expect("Couldn't get if a Transaction to a ViewPair exists").is_some()
   }
 }

@@ -38,9 +38,9 @@ pub async fn run_test<F, Fut>(host_test: bool, test: F)
   let mut host: AnyScriptedHost = BtcHost::new(&scripted).expect("Failed to create BTC host").into();
   host.override_refund_with_random_address();
   let host_refund = host.get_refund_address();
-  let hosts_verifier: AnyUnscriptedVerifier = XmrVerifier::new(&unscripted).expect("Failed to create BTC verifier").into();
-  
-  let mut client: AnyUnscriptedClient = XmrClient::new(&unscripted).expect("Failed to create Monero client").into();
+  let hosts_verifier: AnyUnscriptedVerifier = XmrVerifier::new(&unscripted).await.expect("Failed to create BTC verifier").into();
+
+  let mut client: AnyUnscriptedClient = XmrClient::new(&unscripted).await.expect("Failed to create Monero client").into();
   client.override_refund_with_random_address();
   let client_refund = client.get_refund_address();
   let clients_verifier: AnyScriptedVerifier = BtcVerifier::new(&scripted).expect("Failed to create Monero verifier").into();
@@ -51,7 +51,7 @@ pub async fn run_test<F, Fut>(host_test: bool, test: F)
     host.advance_consensus().await.unwrap();
     assert_eq!(should_have_funds, host.get_if_funded(&host_refund).await);
   } else {
-    let client = XmrClient::new(&unscripted).unwrap();
+    let client = XmrClient::new(&unscripted).await.unwrap();
     client.advance_consensus().await.unwrap();
     assert_eq!(should_have_funds, client.get_if_funded(&client_refund).await);
   }

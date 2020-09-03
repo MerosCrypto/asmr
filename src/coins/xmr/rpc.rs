@@ -28,6 +28,8 @@ use crate::{
 };
 
 #[derive(Deserialize, Debug)]
+struct EmptyResponse {}
+#[derive(Deserialize, Debug)]
 struct JsonRpcResponse<T> {
   result: T
 }
@@ -156,7 +158,7 @@ impl XmrRpc {
     )
   }
 
-  pub async fn wait_for_deposit(&mut self, pair: &ViewPair) -> anyhow::Result<Transaction> {
+  pub async fn get_deposit(&mut self, pair: &ViewPair, wait: bool) -> anyhow::Result<Option<Transaction>> {
     #[derive(Deserialize, Debug)]
     struct BlockResponse {
       blob: String
@@ -206,7 +208,15 @@ impl XmrRpc {
         }
         block += 1;
       }
+
+      if !wait {
+        return Ok(None);
+      }
       tokio::time::delay_for(std::time::Duration::from_secs(10)).await;
+    }
+
+    if !wait {
+      return Ok(Some(result.0));
     }
 
     let mut confirmation_height = result.1;
@@ -219,7 +229,7 @@ impl XmrRpc {
     }
 
     self.deposit = Some(tx_hash);
-    Ok(result.0)
+    Ok(Some(result.0))
   }
 
   pub async fn claim(
@@ -263,8 +273,6 @@ impl XmrRpc {
       anyhow::bail!("Generated a different wallet");
     }
 
-    tokio::time::delay_for(std::time::Duration::from_secs(10)).await;
-
     // Wait ten blocks for the transaction to unlock
     let confirmation_height = self.get_transaction(
       self.deposit.as_ref().expect("Claiming Monero before knowing of its deposit")
@@ -275,6 +283,9 @@ impl XmrRpc {
 
       tokio::time::delay_for(std::time::Duration::from_secs(10)).await;
     }
+    
+    // Trigger a rescan
+    let _: EmptyResponse = self.wallet_call("rescan_blockchain", json!({})).await?.result;
 
     let _: SweepResponse = self.wallet_call("sweep_all", json!({
       "address": destination,
@@ -297,7 +308,7 @@ impl XmrRpc {
     // Create a new wallet
     let mut name = [0; 32];
     OsRng.fill_bytes(&mut name);
-    let _: () = self.wallet_call("create_wallet", json!({
+    let _: EmptyResponse = self.wallet_call("create_wallet", json!({
       "filename": hex::encode(&name),
       "language": "English"
     })).await.expect("Couldn't create a new wallet").result;
@@ -311,6 +322,7 @@ impl XmrRpc {
     for _ in 0 .. 7 {
       self.mine_block().await?;
     }
+    let _: EmptyResponse = self.wallet_call("rescan_blockchain", json!({})).await?.result;
 
     // Send to the specified address
     let _: TransactionResponse = self.wallet_call("transfer", json!({
@@ -326,9 +338,20 @@ impl XmrRpc {
 
   #[cfg(test)]
   pub async fn mine_block(&self) -> anyhow::Result<()> {
-    self.rpc_call("generateblocks", Some(json!({
-      "wallet_address": self.wallet_address,
-      "amount_of_blocks": 10
-    }))).await
+    let _: EmptyResponse = self.rpc_call("json_rpc", Some(json!({
+      "jsonrpc": "2.0",
+      "id": (),
+      "method": "generateblocks",
+      "params": {
+        "wallet_address": if self.wallet_address.is_some() {
+          self.wallet_address.as_ref().unwrap()
+        } else {
+          // Fallback for when the recreated client advances the consensus one last time
+          "456BaF31m8NF1DQ9HRA7ZJ7JJZMVLw1ZY5Uzev5q7QBxFPqkyy1vNRN2Yvn43sE6LLYtQtLH16HKjHDhn1W7a2Wy1aWbp3U"
+        },
+        "amount_of_blocks": 10
+      }
+    }))).await?;
+    Ok(())
   }
 }

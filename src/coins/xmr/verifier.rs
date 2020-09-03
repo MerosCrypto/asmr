@@ -85,7 +85,7 @@ impl UnscriptedVerifier for XmrVerifier {
       },
       view: PrivateKey::from_scalar(self.engine.view)
     };
-    let send = self.rpc.wait_for_deposit(&pair).await?;
+    let send = self.rpc.get_deposit(&pair, true).await?.unwrap();
 
     // Verify metadata
     if (send.prefix.version.0 != 2) || (send.prefix.unlock_time.0 != 0) {
