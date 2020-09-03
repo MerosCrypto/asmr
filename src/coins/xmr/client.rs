@@ -1,3 +1,4 @@
+#[allow(unused_imports)]
 use std::{
   marker::PhantomData,
   convert::TryInto,
@@ -7,6 +8,7 @@ use std::{
 
 use async_trait::async_trait;
 
+#[allow(unused_imports)]
 use monero::util::{
   key::{PrivateKey, PublicKey, ViewPair},
   address::Address
@@ -16,30 +18,26 @@ use crate::{
   crypt_engines::{KeyBundle, CryptEngine, ed25519_engine::Ed25519Sha},
   coins::{
     ScriptedVerifier, UnscriptedClient,
-    xmr::engine::*,
-    xmr::rpc::XmrRpc
+    xmr::engine::*
   }
 };
 
 pub struct XmrClient {
   engine: XmrEngine,
-  rpc: XmrRpc,
   #[cfg(test)]
   refund_pair: Option<ViewPair>,
-  refund_address: String,
   address: Option<String>,
   deposited: bool
 }
 
 impl XmrClient {
   pub async fn new(config_path: &Path) -> anyhow::Result<XmrClient> {
-    let config = serde_json::from_reader(File::open(config_path)?)?;
-    Ok(XmrClient{
-      engine: XmrEngine::new(),
-      rpc: XmrRpc::new(&config).await?,
+    Ok(XmrClient {
+      engine: XmrEngine::new(
+        serde_json::from_reader(File::open(config_path)?)?
+      ).await?,
       #[cfg(test)]
       refund_pair: None,
-      refund_address: config.refund,
       address: None,
       deposited: false
     })
@@ -77,41 +75,25 @@ impl UnscriptedClient for XmrClient {
   }
 
   fn get_address(&mut self) -> String {
-    self.address = Some(Address::standard(
-      NETWORK,
-      PublicKey {
-        point: self.engine.spend.expect("Getting address before verifying DLEQ proof").compress()
-      },
-      PublicKey {
-        point: Ed25519Sha::to_public_key(&self.engine.view).compress()
-      }
-    ).to_string());
-    self.address.clone().unwrap()
+    let address = Address::from_viewpair(NETWORK, &self.engine.get_view_pair()).to_string();
+    self.address = Some(address.clone());
+    address
   }
 
   async fn wait_for_deposit(&mut self) -> anyhow::Result<()> {
-    self.rpc.get_deposit(&ViewPair {
-      spend: PublicKey {
-        point: self.engine.spend.expect("Waiting for transaction before verifying DLEQ proof").compress()
-      },
-      view: PrivateKey::from_scalar(self.engine.view)
-    }, true).await?.unwrap();
+    self.engine.get_deposit(&self.engine.get_view_pair(), true).await?.unwrap();
     self.deposited = true;
     Ok(())
   }
 
   async fn refund<Verifier: ScriptedVerifier >(self, verifier: Verifier) -> anyhow::Result<()> {
-    if self.address.is_none() || (!self.deposited) {
+    if !self.deposited {
       Ok(())
     } else {
       if let Some(recovered_key) = verifier.claim_refund_or_recover_key().await? {
-        self.rpc.claim(
-          (
-            Ed25519Sha::little_endian_bytes_to_private_key(recovered_key)? +
-            self.engine.k.expect("Finishing before generating keys")
-          ),
-          self.engine.view,
-          &self.refund_address
+        self.engine.claim(
+          Ed25519Sha::little_endian_bytes_to_private_key(recovered_key)?,
+          &self.engine.config.refund
         ).await?;
       }
       Ok(())
@@ -128,21 +110,20 @@ impl UnscriptedClient for XmrClient {
         point: Ed25519Sha::to_public_key(&Ed25519Sha::new_private_key()).compress()
       }
     });
-    self.refund_address = Address::from_viewpair(NETWORK, self.refund_pair.as_ref().unwrap()).to_string();
+    self.engine.config.refund = Address::from_viewpair(NETWORK, self.refund_pair.as_ref().unwrap()).to_string();
   }
 
   #[cfg(test)]
   async fn send_from_node(&mut self) -> anyhow::Result<()> {
-    let address = self.get_address();
-    self.rpc.send_from_wallet(&address).await
+    self.engine.send_from_wallet().await
   }
   #[cfg(test)]
   async fn advance_consensus(&self) -> anyhow::Result<()> {
-    self.rpc.mine_block().await
+    self.engine.mine_block().await
   }
   #[cfg(test)]
   fn get_refund_address(&self) -> String {
-    // Actually return the ViewPair
+    // Actually return the ViewPair, in order to be able to track the address it maps to
     hex::encode(Ed25519Sha::private_key_to_bytes(&self.refund_pair.as_ref().unwrap().view.scalar)) +
     &hex::encode(&self.refund_pair.as_ref().unwrap().spend.point.as_bytes())
   }
@@ -150,7 +131,7 @@ impl UnscriptedClient for XmrClient {
   #[cfg(test)]
   async fn get_if_funded(mut self, pair: &str) -> bool {
     let pair = hex::decode(pair).unwrap();
-    let view_pair = ViewPair {
+    let pair = ViewPair {
       view: PrivateKey {
         scalar: Ed25519Sha::bytes_to_private_key(pair[0 .. 32].try_into().unwrap()).unwrap()
       },
@@ -158,6 +139,6 @@ impl UnscriptedClient for XmrClient {
         point: Ed25519Sha::bytes_to_public_key(pair[32..].try_into().unwrap()).unwrap().compress()
       },
     };
-    self.rpc.get_deposit(&view_pair, false).await.expect("Couldn't get if a Transaction to a ViewPair exists").is_some()
+    self.engine.get_deposit(&pair, false).await.expect("Couldn't get if a Transaction to a ViewPair exists").is_some()
   }
 }
