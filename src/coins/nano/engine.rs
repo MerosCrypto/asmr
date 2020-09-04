@@ -148,18 +148,7 @@ impl NanoEngine {
   fn complete_block(inner: BlockInner, key: <Ed25519Blake2b as CryptEngine>::PrivateKey, work_threshold: u64) -> Block {
     let hash = inner.get_hash();
     let signature = Ed25519Blake2b::sign(&key, &hash.0);
-    let root = match &inner {
-      BlockInner::Send { previous, .. } => previous.0,
-      BlockInner::Receive { previous, .. } => previous.0,
-      BlockInner::Open { account, .. } => account.0,
-      BlockInner::Change { previous, .. } => previous.0,
-      BlockInner::State { previous, account, .. } => if previous == &BlockHash::default() {
-        account.0
-      } else {
-        previous.0
-      },
-    };
-    let work = Self::compute_work(root, work_threshold);
+    let work = Self::compute_work(inner.root_bytes().clone(), work_threshold);
     Block {
       inner,
       header: BlockHeader {
