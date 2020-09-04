@@ -1,4 +1,4 @@
-# Atomic Swaps on Meros - Proof of Concept
+# Atomic Swaps for Meros - Proof of Concept
 
 A proof-of-concept implementation of [Bitcoin-Monero Cross-chain Atomic Swap](https://github.com/h4sh3d/xmr-btc-atomic-swap/raw/master/whitepaper/xmr-btc.pdf), initially targeting Bitcoin and Meros. Despite this being protocol being designed for Monero, the cryptography within is directly applicable to nearly all coins without scripting functionality. In accordance, this implementation was designed to be extremely easy to expand, so adding support for new coins on either side should only take a few days.
 
