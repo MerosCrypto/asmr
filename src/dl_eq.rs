@@ -1,3 +1,5 @@
+use anyhow::Context;
+
 use log::trace;
 
 use rand::{rngs::OsRng, RngCore};
@@ -16,6 +18,7 @@ pub struct DlEqProof<EngineA: CryptEngine, EngineB: CryptEngine> {
   base_commitments: Vec<(EngineA::PublicKey, EngineB::PublicKey)>,
   first_challenges: Vec<[u8; 32]>,
   s_values: Vec<[(EngineA::PrivateKey, EngineB::PrivateKey); 2]>,
+  signatures: (EngineA::Signature, EngineB::Signature),
 }
 
 impl<EngineA: CryptEngine, EngineB: CryptEngine> DlEqProof<EngineA, EngineB> {
@@ -81,12 +84,17 @@ impl<EngineA: CryptEngine, EngineB: CryptEngine> DlEqProof<EngineA, EngineB> {
       base_commitments.push((comm_a.commitment, comm_b.commitment));
     }
     let key_a = EngineA::little_endian_bytes_to_private_key(key).unwrap();
+    let key_a_hash: [u8; 32] = Sha256::digest(&EngineA::public_key_to_bytes(&EngineA::to_public_key(&key_a))).into();
+    let sig_a = EngineA::sign(&key_a, &key_a_hash).unwrap();
     let key_b = EngineB::little_endian_bytes_to_private_key(key).unwrap();
+    let key_b_hash: [u8; 32] = Sha256::digest(&EngineB::public_key_to_bytes(&EngineB::to_public_key(&key_b))).into();
+    let sig_b = EngineB::sign(&key_b, &key_b_hash).unwrap();
     (
       DlEqProof {
         base_commitments,
         first_challenges,
         s_values,
+        signatures: (sig_a, sig_b),
       },
       key_a,
       key_b,
@@ -125,7 +133,13 @@ impl<EngineA: CryptEngine, EngineB: CryptEngine> DlEqProof<EngineA, EngineB> {
       }
     }
     let key_a = EngineA::dl_eq_reconstruct_key(self.base_commitments.iter().map(|c| &c.0))?;
+    let key_a_hash: [u8; 32] = Sha256::digest(&EngineA::public_key_to_bytes(&key_a)).into();
+    EngineA::verify_signature(&key_a, &key_a_hash, &self.signatures.0)
+      .context("Error verifying signature for dleq public key A")?;
     let key_b = EngineB::dl_eq_reconstruct_key(self.base_commitments.iter().map(|c| &c.1))?;
+    let key_b_hash: [u8; 32] = Sha256::digest(&EngineB::public_key_to_bytes(&key_b)).into();
+    EngineB::verify_signature(&key_b, &key_b_hash, &self.signatures.1)
+      .context("Error verifying signature for dleq public key B")?;
     trace!(
       "Verified dleq proof for keys {} and {}",
       hex::encode(EngineA::public_key_to_bytes(&key_a)),

@@ -31,7 +31,7 @@ pub struct Commitment<Engine: CryptEngine> {
 pub trait CryptEngine: Sized {
   type PrivateKey: PartialEq + Serialize + DeserializeOwned + Clone + Sized + Send + Sync + 'static;
   type PublicKey: PartialEq + Serialize + DeserializeOwned + Clone + Sized + Send + Sync + 'static;
-  type Signature: PartialEq + Clone + Sized + Send + Sync + 'static;
+  type Signature: PartialEq + Serialize + DeserializeOwned + Clone + Sized + Send + Sync + 'static;
   type EncryptedSignature: PartialEq + Clone + Sized + Send + Sync + 'static;
 
   fn new_private_key() -> Self::PrivateKey;
@@ -56,6 +56,9 @@ pub trait CryptEngine: Sized {
   fn public_key_to_bytes(key: &Self::PublicKey) -> Vec<u8>;
   fn signature_to_bytes(sig: &Self::Signature) -> Vec<u8>;
   fn encrypted_signature_to_bytes(sig: &Self::EncryptedSignature) -> Vec<u8>;
+
+  fn sign(secret_key: &Self::PrivateKey, message: &[u8]) -> anyhow::Result<Self::Signature>;
+  fn verify_signature(public_key: &Self::PublicKey, message: &[u8], signature: &Self::Signature) -> anyhow::Result<()>;
 
   fn encrypted_sign(
     signing_key: &Self::PrivateKey,

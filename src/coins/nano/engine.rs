@@ -147,7 +147,7 @@ impl NanoEngine {
 
   fn complete_block(inner: BlockInner, key: <Ed25519Blake2b as CryptEngine>::PrivateKey, work_threshold: u64) -> Block {
     let hash = inner.get_hash();
-    let signature = Ed25519Blake2b::sign(&key, &hash.0);
+    let signature = Ed25519Blake2b::sign(&key, &hash.0).unwrap();
     let work = Self::compute_work(inner.root_bytes().clone(), work_threshold);
     Block {
       inner,

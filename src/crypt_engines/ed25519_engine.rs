@@ -156,6 +156,43 @@ impl<D: Digest<OutputSize = U64>> CryptEngine for Ed25519Engine<D> {
     key.to_bytes()
   }
 
+  #[allow(non_snake_case)]
+  fn sign(key: &Self::PrivateKey, message: &[u8]) -> anyhow::Result<Self::Signature> {
+    let r = Scalar::random(&mut OsRng);
+    let R = &r * &ED25519_BASEPOINT_TABLE;
+    let A = key * &ED25519_BASEPOINT_TABLE;
+    let mut hram = [0u8; 64];
+    let hash = D::new()
+      .chain(&R.compress().as_bytes())
+      .chain(&A.compress().as_bytes())
+      .chain(message)
+      .finalize();
+    hram.copy_from_slice(&hash);
+    let c = Scalar::from_bytes_mod_order_wide(&hram);
+    let s = r + c * key;
+    Ok(Signature {
+      R,
+      s,
+    })
+  }
+  #[allow(non_snake_case)]
+  fn verify_signature(public_key: &Self::PublicKey, message: &[u8], signature: &Self::Signature) -> anyhow::Result<()> {
+    let mut hram = [0u8; 64];
+    let hash = D::new()
+      .chain(&signature.R.compress().as_bytes())
+      .chain(&public_key.compress().as_bytes())
+      .chain(message)
+      .finalize();
+    hram.copy_from_slice(&hash);
+    let c = Scalar::from_bytes_mod_order_wide(&hram);
+    let expected_R = &signature.s * &ED25519_BASEPOINT_TABLE - c * public_key;
+    if expected_R == signature.R {
+      Ok(())
+    } else {
+      Err(anyhow::anyhow!("Bad signature"))
+    }
+  }
+
   fn encrypted_sign(
     signing_key: &Self::PrivateKey,
     encryption_key: &Self::PublicKey,
@@ -244,27 +281,5 @@ impl<D: Digest<OutputSize = U64>> CryptEngine for Ed25519Engine<D> {
       anyhow::bail!("Recovered VES key didn't match expected key");
     }
     Ok(key)
-  }
-}
-
-impl<D: Digest<OutputSize = U64>> Ed25519Engine<D> {
-  #[allow(non_snake_case)]
-  pub fn sign(key: &Scalar, message: &[u8]) -> Signature {
-    let r = Scalar::random(&mut OsRng);
-    let R = &r * &ED25519_BASEPOINT_TABLE;
-    let A = key * &ED25519_BASEPOINT_TABLE;
-    let mut hram = [0u8; 64];
-    let hash = D::new()
-      .chain(&R.compress().as_bytes())
-      .chain(&A.compress().as_bytes())
-      .chain(message)
-      .finalize();
-    hram.copy_from_slice(&hash);
-    let c = Scalar::from_bytes_mod_order_wide(&hram);
-    let s = r + c * key;
-    Signature {
-      R,
-      s,
-    }
   }
 }

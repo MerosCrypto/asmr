@@ -1,3 +1,5 @@
+use std::convert::TryInto;
+
 use lazy_static::lazy_static;
 use hex_literal::hex;
 
@@ -221,6 +223,49 @@ impl CryptEngine for Secp256k1Engine {
     let mut bytes = key.to_bytes();
     bytes.reverse(); // secp is big endian
     bytes
+  }
+
+  #[allow(non_snake_case)]
+  fn sign(secret_key: &Self::PrivateKey, message: &[u8]) -> anyhow::Result<Self::Signature> {
+    let message: [u8; 32] = message
+      .try_into()
+      .map_err(|_| anyhow::anyhow!("ECDSA signatures must be of a 32 byte message hash"))?;
+    let m = Scalar::from_bytes_mod_order(message).mark::<Public>();
+    let r = Scalar::random(&mut OsRng);
+    let R = g!(r * G).mark::<Normal>();
+    let R_x = Scalar::from_bytes_mod_order(R.to_xonly().into_bytes())
+      .mark::<(Public, NonZero)>()
+      .ok_or_else(|| anyhow::anyhow!("Generated zero R value"))?;
+    let mut s = s!({ r.invert() } * (m + R_x * secret_key)).mark::<Public>();
+    s.conditional_negate(s.is_high());
+    Ok(SecpSignature {
+      r: R_x.to_bytes(),
+      s,
+    })
+  }
+  fn verify_signature(public_key: &Self::PublicKey, message: &[u8], signature: &Self::Signature) -> anyhow::Result<()> {
+    let message: [u8; 32] = message
+      .try_into()
+      .map_err(|_| anyhow::anyhow!("ECDSA signatures must be of a 32 byte message hash"))?;
+    let m = Scalar::from_bytes_mod_order(message).mark::<Public>();
+    let s_inv = signature
+      .s
+      .clone()
+      .mark::<NonZero>()
+      .ok_or_else(|| anyhow::anyhow!("Signature has zero s value"))?
+      .invert();
+    let r = Scalar::from_bytes(signature.r)
+      .and_then(|s| s.mark::<Public>().mark::<NonZero>())
+      .ok_or_else(|| anyhow::anyhow!("Signature has invalid r value"))?;
+
+    let computed_r = g!((s_inv * m) * G + (s_inv * r) * public_key)
+      .mark::<NonZero>()
+      .ok_or_else(|| anyhow::anyhow!("Signature resulted in zero R value"))?;
+    if computed_r.x_eq_scalar(&r) {
+      Ok(())
+    } else {
+      Err(anyhow::anyhow!("Bad signature"))
+    }
   }
 
   #[allow(non_snake_case)]
