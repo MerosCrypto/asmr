@@ -121,7 +121,7 @@ impl Send {
   pub fn sign(&mut self, key: <Ed25519Sha as CryptEngine>::PrivateKey) {
     let mut to_sign = b"MEROS".to_vec();
     to_sign.extend(&self.hash);
-    self.signature = Some(Ed25519Sha::signature_to_bytes(&Ed25519Sha::sign(&key, &to_sign)));
+    self.signature = Some(Ed25519Sha::signature_to_bytes(&Ed25519Sha::sign(&key, &to_sign).unwrap()));
   }
 
   pub fn mine(&mut self, diff: u32) {
