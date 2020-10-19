@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use lazy_static::lazy_static;
 use hex_literal::hex;
 
-use log::{debug, trace};
+use log::{debug, trace, warn};
 
 use rand::rngs::OsRng;
 use digest::{Digest, generic_array::typenum::U64};
@@ -132,6 +132,9 @@ impl<D: Digest<OutputSize = U64>> CryptEngine for Ed25519Engine<D> {
       res += comm * power_of_two;
       power_of_two *= two;
     }
+    if !res.is_torsion_free() {
+      anyhow::bail!("DLEQ public key has torsion");
+    }
     Ok(res)
   }
   fn dl_eq_blinding_key_to_public(key: &Self::PrivateKey) -> anyhow::Result<Self::PublicKey> {
@@ -236,6 +239,12 @@ impl<D: Digest<OutputSize = U64>> CryptEngine for Ed25519Engine<D> {
       hex::encode(message),
       hex::encode(Self::encrypted_signature_to_bytes(&ciphertext))
     );
+    if !signing_key.is_torsion_free() ||
+      !encryption_key.is_torsion_free() ||
+      !ciphertext.R.is_torsion_free()
+    {
+      anyhow::bail!("Encrypted signature point(s) have torsion");
+    }
     let challenge_nonce = &ciphertext.R + encryption_key;
     let mut hram = [0u8; 64];
     let hash = D::new()
@@ -274,7 +283,12 @@ impl<D: Digest<OutputSize = U64>> CryptEngine for Ed25519Engine<D> {
       hex::encode(Self::signature_to_bytes(&sig))
     );
     if &(sig.R - ciphertext.R) != expected_key {
-      anyhow::bail!("Attempted to recover key with separate signatures, invalid signatures, or the wrong expected key");
+      if sig.R.is_torsion_free() {
+        warn!("Attempting to recover key from signatures without matching R values. This will likely fail.");
+      } else {
+        // TODO confirm that key recovery works as expected with torsion
+        warn!("Torsion present in published signature. An adversary may be present.");
+      }
     }
     let key = sig.s - ciphertext.s;
     if &(&key * &ED25519_BASEPOINT_TABLE) != expected_key {
