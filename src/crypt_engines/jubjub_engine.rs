@@ -3,7 +3,7 @@ use std::{
   fmt::Debug
 };
 
-use rand::{rngs::OsRng};
+use rand::rngs::OsRng;
 use digest::Digest;
 use serde::{Serialize, Deserialize};
 
@@ -55,10 +55,6 @@ impl JubjubEngine {
 
   pub fn get_point(key: &PublicKey) -> SubgroupPoint {
     SubgroupPoint::from_bytes(&key.bytes).unwrap()
-  }
-
-  pub fn get_identity_as_bytes() -> [u8; 32] {
-    SubgroupPoint::identity().to_bytes()
   }
 
   pub fn add_private_key(a: &PrivateKey, b: &PrivateKey) -> PrivateKey {

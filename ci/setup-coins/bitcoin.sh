@@ -36,6 +36,7 @@ echo 'txid_limit = 0' >> electrs.toml
 
 address="$(./electrum/run_electrum --regtest getunusedaddress)"
 ./bitcoin-node/bin/bitcoin-cli -regtest -rpcuser=ci -rpcpassword=password generatetoaddress 105 "$address"
+sleep 10
 
 destination="$(./electrum/run_electrum --regtest getunusedaddress)"
 refund="$(./electrum/run_electrum --regtest getunusedaddress)"

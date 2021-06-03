@@ -1,6 +1,8 @@
 use std::fmt::Debug;
 use log::debug;
 
+use rand::{RngCore, rngs::OsRng};
+
 use digest::Digest;
 
 use serde::{Serialize, Deserialize, de::DeserializeOwned};
@@ -359,12 +361,14 @@ impl ZecEngine {
     // We also can't construct a dummy esk with the field we do have due to private fields
     // Constructs and overrides a legitimate esk with our custom keys to satisfy the below API
     let mut esk = ExtendedSpendingKey::master(&vec![0]);
+    let mut stub_ovk = [0; 32];
+    OsRng.fill_bytes(&mut stub_ovk);
     esk.expsk = ExpandedSpendingKey {
       ask: JubjubEngine::get_scalar(
         &JubjubEngine::add_private_key(&self.ask.as_ref().expect("Claiming despite never setting our key share"), &ask)
       ),
       nsk: JubjubEngine::get_scalar(&self.nsk),
-      ovk: OutgoingViewingKey(JubjubEngine::get_identity_as_bytes())
+      ovk: OutgoingViewingKey(stub_ovk)
     };
 
     let mut builder = Builder::new(RegtestParams(()), BlockHeight::from_u32(self.get_height().await as u32));
