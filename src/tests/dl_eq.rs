@@ -2,7 +2,8 @@ use crate::{
   crypt_engines::CryptEngine,
   crypt_engines::{
     ed25519_engine::Ed25519Sha,
-    secp256k1_engine::Secp256k1Engine
+    secp256k1_engine::Secp256k1Engine,
+    jubjub_engine::JubjubEngine
   },
   dl_eq::DlEqProof
 };
@@ -28,6 +29,12 @@ fn dl_eq_secp256k1_with_self() {
 }
 
 #[test]
+fn dl_eq_jubjub_with_self() {
+  let _ = env_logger::builder().is_test(true).try_init();
+  test_dl_eq_with_engines::<JubjubEngine, JubjubEngine>();
+}
+
+#[test]
 fn dl_eq_secp256k1_with_ed25519() {
   let _ = env_logger::builder().is_test(true).try_init();
   test_dl_eq_with_engines::<Secp256k1Engine, Ed25519Sha>();
@@ -35,10 +42,24 @@ fn dl_eq_secp256k1_with_ed25519() {
 }
 
 #[test]
+fn dl_eq_secp256k1_with_jubjub() {
+  let _ = env_logger::builder().is_test(true).try_init();
+  test_dl_eq_with_engines::<Secp256k1Engine, JubjubEngine>();
+  test_dl_eq_with_engines::<JubjubEngine, Secp256k1Engine>();
+}
+
+#[test]
+fn dl_eq_ed25519_with_jubjub() {
+  let _ = env_logger::builder().is_test(true).try_init();
+  test_dl_eq_with_engines::<Ed25519Sha, JubjubEngine>();
+  test_dl_eq_with_engines::<JubjubEngine, Ed25519Sha>();
+}
+
+#[test]
 fn test_max_key_wrapping() {
   let _ = env_logger::builder().is_test(true).try_init();
   let mut key = [0xffu8; 32];
-  assert_eq!(crate::dl_eq::SHARED_KEY_BITS, 252); // Change the following line if this changes
+  assert_eq!(crate::dl_eq::SHARED_KEY_BITS, 251); // Change the following line if this changes
   key[31] = 0b0000_1111;
   let mut key_rev = key;
   key_rev.reverse();

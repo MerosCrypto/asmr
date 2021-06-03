@@ -1,3 +1,4 @@
+mod jubjub;
 mod dl_eq;
 mod secp_dl_eq;
 mod ves;
@@ -12,3 +13,5 @@ mod btc_and_meros;
 mod btc_and_nano;
 #[cfg(all(feature = "test_bitcoin_node", feature = "test_monero_node"))]
 mod btc_and_xmr;
+#[cfg(all(feature = "test_bitcoin_node", feature = "test_zcash_node"))]
+mod btc_and_zec;

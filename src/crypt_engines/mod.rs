@@ -1,5 +1,6 @@
 pub mod secp256k1_engine;
 pub mod ed25519_engine;
+pub mod jubjub_engine;
 
 use serde::{Serialize, Deserialize, de::DeserializeOwned};
 
