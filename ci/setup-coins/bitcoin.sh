@@ -12,10 +12,10 @@ curl https://bitcoincore.org/bin/bitcoin-core-"$btc_version"/bitcoin-"$btc_versi
 mv bitcoin-"$btc_version" bitcoin-node
 
 if [ ! -e electrs/target/debug/electrs ]; then
-    git clone --depth 1 --branch v0.8.5 'https://github.com/romanz/electrs' electrs
-    pushd electrs
-    cargo build
-    popd
+  git clone --depth 1 --branch v0.8.10 'https://github.com/romanz/electrs' electrs
+  pushd electrs
+  cargo build
+  popd
 fi
 
 git clone --depth 1 --branch 4.0.2 'https://github.com/spesmilo/electrum'
@@ -24,7 +24,7 @@ python3 -m pip install --user -e .
 popd
 
 ./bitcoin-node/bin/bitcoind -regtest -daemon -server=1 -txindex=1 -prune=0 -rpcport=18443 -rpcuser=ci -rpcpassword=password
-echo 'cookie = "ci:password"' > electrs.toml
+echo 'auth = "ci:password"' > electrs.toml
 echo 'txid_limit = 0' >> electrs.toml
 ./electrs/target/debug/electrs --network regtest &
 ./electrum/run_electrum --regtest --offline setconfig rpcport 3000
@@ -35,8 +35,7 @@ echo 'txid_limit = 0' >> electrs.toml
 ./electrum/run_electrum --regtest load_wallet
 
 address="$(./electrum/run_electrum --regtest getunusedaddress)"
-./bitcoin-node/bin/bitcoin-cli -regtest -rpcuser=ci -rpcpassword=password generatetoaddress 105 "$address"
-sleep 10
+./bitcoin-node/bin/bitcoin-cli -regtest -rpcuser=ci -rpcpassword=password generatetoaddress 110 "$address"
 
 destination="$(./electrum/run_electrum --regtest getunusedaddress)"
 refund="$(./electrum/run_electrum --regtest getunusedaddress)"
