@@ -66,7 +66,7 @@ jobs:
         uses: actions/cache@v2
         with:
           path: ~/coins/bitcoin/electrs/target/debug/electrs
-          key: ${{ runner.os }}-electrs-v0.8.5
+          key: ${{ runner.os }}-electrs-v0.8.10
 
       - name: Nano-node cache
         uses: actions/cache@v2
