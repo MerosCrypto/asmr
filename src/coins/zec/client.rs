@@ -34,7 +34,7 @@ pub struct ZecShieldedClient {
 
 impl ZecShieldedClient {
   pub async fn new(config_path: &Path) -> anyhow::Result<ZecShieldedClient> {
-    Ok(ZecShieldedClient{
+    Ok(ZecShieldedClient {
       engine: ZecEngine::new(serde_json::from_reader(File::open(config_path)?)?).await?,
       deposited: false,
       #[cfg(test)]

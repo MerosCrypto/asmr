@@ -98,7 +98,7 @@ pub struct ZecEngine {
   pub ask: Option<<JubjubEngine as CryptEngine>::PrivateKey>,
   pub nsk: <JubjubEngine as CryptEngine>::PrivateKey,
   pub vk: Option<ViewingKey>,
-  diversifier: [u8; 11],
+  diversifier: Option<Diversifier>,
 
   height_at_start: isize,
   tree: CommitmentTree<Node>,
@@ -125,7 +125,7 @@ impl ZecEngine {
       ask: None,
       nsk: JubjubEngine::new_private_key(),
       vk: None,
-      diversifier: [0; 11],
+      diversifier: None,
 
       height_at_start: -1,
       tree: CommitmentTree::<Node>::empty(),
@@ -201,37 +201,46 @@ impl ZecEngine {
     nsk: &<JubjubEngine as CryptEngine>::PrivateKey
   ) {
     self.nsk = JubjubEngine::add_private_key(&self.nsk, nsk);
-    self.vk = Some(ViewingKey {
+    let vk = ViewingKey {
       ak: JubjubEngine::add_public_key(&JubjubEngine::to_public_key(
         &self.ask.as_ref().expect("Key exchange occurring before generating keys")),
         ak
       ),
       nk: JubjubEngine::mul_by_proof_generation_generator(&self.nsk)
-    });
-  }
+    };
 
-  pub fn get_deposit_address(&mut self) -> String {
     // Seemingly random, generated using common data so we don't need to send another mutual variable
     // Avoids the need for a more complicated method/a master secret
     // This should likely be improved to the algorithm described by the Sapling protocol documentation
-    self.diversifier.copy_from_slice(&sha2::Sha256::new()
+    let mut diversifier = [0; 11];
+    diversifier.copy_from_slice(&sha2::Sha256::new()
       // DST for extra safety. If for some reason H(self.nsk) must be kept secret, this ensures it
       // While we'd only leak 11 bytes, that's still a 88-bit reduction
       .chain("asmr diversifier")
       .chain(&JubjubEngine::private_key_to_bytes(&self.nsk))
       .finalize()[..11]
     );
-    self.vk.as_ref().expect("Getting deposit address before sharing keys").ivk().to_repr();
-    let mut address;
-    while {
-      address = self.vk.as_ref().expect("Getting deposit address before sharing keys").to_payment_address(Diversifier(self.diversifier));
-      address.is_none()
-    } {
-      let diversifier_copy = self.diversifier;
-      self.diversifier.copy_from_slice(&sha2::Sha256::digest(&diversifier_copy)[..11]);
+    // Recursively hash the diversifier until a valid one is found
+    // This is also somewhat mirrored by the protocol's definition of how to generate a diversifier
+    // That also has multiple failure values and takes the first which works
+    while vk.to_payment_address(Diversifier(diversifier)).is_none() {
+      let diversifier_copy = diversifier;
+      diversifier.copy_from_slice(&sha2::Sha256::digest(&diversifier_copy)[..11]);
     }
 
-    encode_payment_address(HRP_SAPLING_PAYMENT_ADDRESS, &address.unwrap())
+    self.vk = Some(vk);
+    self.diversifier = Some(Diversifier(diversifier));
+  }
+
+  pub fn get_deposit_address(&mut self) -> String {
+    encode_payment_address(
+      HRP_SAPLING_PAYMENT_ADDRESS,
+      &self
+        .vk.as_ref().expect("Getting deposit address before sharing keys")
+        // unwrap as it'd have the same expect message as above
+        .to_payment_address(self.diversifier.clone().unwrap())
+        .expect("Generated an invalid diversifier when sharing keys")
+    )
   }
 
   async fn get_height(&self) -> isize {
@@ -374,7 +383,7 @@ impl ZecEngine {
     let mut builder = Builder::new(RegtestParams(()), BlockHeight::from_u32(self.get_height().await as u32));
     builder.add_sapling_spend(
       esk,
-      Diversifier(self.diversifier.clone()),
+      self.diversifier.clone().expect("Claiming despite never sharing keys"),
       self.note.clone().expect("Didn't set the note when funds were received"),
       self.witness.clone().expect("Didn't set the witness when funds were received").path().unwrap()
     )?;

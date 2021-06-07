@@ -69,8 +69,6 @@ impl UnscriptedVerifier for ZecShieldedVerifier {
   }
 
   async fn finish<Host: ScriptedHost>(&mut self, host: &Host) -> anyhow::Result<()> {
-    // Called to set the diversifier
-    self.0.get_deposit_address();
     self.0.claim(
       JubjubEngine::little_endian_bytes_to_private_key(host.recover_final_key().await?)?,
       &self.0.config.destination
