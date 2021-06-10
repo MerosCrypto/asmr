@@ -1,4 +1,7 @@
-use std::fmt::Debug;
+use std::{
+  convert::TryInto,
+  fmt::Debug
+};
 use log::debug;
 
 use rand::{RngCore, rngs::OsRng};
@@ -109,7 +112,10 @@ pub struct ZecEngine {
   // Unless that was also passed around, in which case we just have a secondary struct for effectively no reason
   witness: Option<IncrementalWitness<Node>>,
   note: Option<Note>,
-  branch: Option<BranchId>
+  branch: Option<BranchId>,
+
+  #[cfg(test)]
+  wallet_address: String
 }
 
 impl ZecEngine {
@@ -132,7 +138,10 @@ impl ZecEngine {
 
       witness: None,
       note: None,
-      branch: None
+      branch: None,
+
+      #[cfg(test)]
+      wallet_address: "".to_string()
     };
     result.height_at_start = result.get_height().await;
 
@@ -151,6 +160,11 @@ impl ZecEngine {
     }
     let tree: TreeResponse = result.rpc_call("z_gettreestate", &json![[result.height_at_start.to_string()]]).await?;
     result.tree = CommitmentTree::<Node>::read(&*hex::decode(tree.sapling.commitments.finalState).expect("ZCashd returned a non-hex tree"))?;
+
+    #[cfg(test)]
+    {
+      result.wallet_address = result.rpc_call("z_getnewaddress", &json!([])).await?;
+    }
 
     Ok(result)
   }
@@ -295,7 +309,7 @@ impl ZecEngine {
   }
 
   pub async fn get_deposit(&mut self, vk: &ViewingKey, wait: bool) -> anyhow::Result<Option<u64>> {
-    let mut block = self.height_at_start - 1;
+    let mut block = self.height_at_start + 1;
     let mut block_hash = "".to_string();
     let mut tx_hash = "".to_string();
     let mut funds;
@@ -333,6 +347,19 @@ impl ZecEngine {
               }
             }
           }
+        }
+
+        #[derive(Deserialize, Debug)]
+        struct BlockResponse {
+          finalsaplingroot: String
+        }
+        let block_res: BlockResponse = self.rpc_call("getblock", &json!([block.to_string()])).await?;
+
+        if dbg!(Node::new(
+          hex::decode(block_res.finalsaplingroot).expect("Sapling root wasn't hex")
+            .into_iter().rev().collect::<Vec<u8>>()[..].try_into().expect("Sapling root wasn't 32 bytes")
+        )) != dbg!(self.tree.root()) {
+          anyhow::bail!("Block root doesn't match");
         }
 
         // Only break once we finish this entire block
@@ -404,7 +431,36 @@ impl ZecEngine {
 
   #[cfg(test)]
   pub async fn mine_block(&self) -> anyhow::Result<()> {
-    let _: Vec<String> = self.rpc_call("generate", &json!([10])).await?;
+    for _ in 0 .. 10 {
+      #[derive(Deserialize, Debug)]
+      struct ShieldResponse {
+        opid: String
+      }
+      let mut shield: anyhow::Result<ShieldResponse> = self.rpc_call("z_shieldcoinbase", &json!([
+        "*", &self.wallet_address
+      ])).await;
+
+      if shield.is_ok() {
+        #[derive(Deserialize, Debug)]
+        struct StatusResponse {
+          status: String
+        }
+        while {
+          let status: Vec<StatusResponse> = self.rpc_call("z_getoperationstatus", &json!([[shield.as_ref().unwrap().opid]])).await?;
+          if status[0].status == "failed" {
+            tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
+            shield = self.rpc_call("z_shieldcoinbase", &json!([
+              "*", &self.wallet_address
+            ])).await;
+          }
+          status[0].status != "success"
+        } {
+          tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
+        }
+      }
+      let _: Vec<String> = self.rpc_call("generate", &json!([1])).await?;
+    }
+
     Ok(())
   }
 
@@ -414,30 +470,10 @@ impl ZecEngine {
       self.mine_block().await?;
     }
 
-    let address: String = self.rpc_call("z_getnewaddress", &json!([])).await?;
-
-    #[derive(Deserialize, Debug)]
-    struct ShieldResponse {
-      opid: String
-    }
-    let shield: ShieldResponse = self.rpc_call("z_shieldcoinbase", &json!([
-      "*", address
+    let our_address = self.get_deposit_address();
+    let send: String = self.rpc_call("z_sendmany", &json!([
+      &self.wallet_address, [{"address": our_address, "amount": 1}]
     ])).await?;
-
-    #[derive(Deserialize, Debug)]
-    struct StatusResponse {
-      status: String
-    }
-    while {
-      let status: Vec<StatusResponse> = self.rpc_call("z_getoperationstatus", &json!([[shield.opid]])).await?;
-      if status[0].status == "failed" {
-        anyhow::bail!("Coinbase shield failed");
-      }
-      status[0].status != "success"
-    } {
-      tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
-    }
-    self.mine_block().await?;
 
     // This is needed for some reason
     // Given that we wait for the operation to succeed before mining blocks, and wait on that, I have no idea why
@@ -445,11 +481,10 @@ impl ZecEngine {
     // Therefore, this should be updated, yet for now, it works
     tokio::time::delay_for(std::time::Duration::from_secs(3)).await;
 
-    let our_address = self.get_deposit_address();
-    let send: String = self.rpc_call("z_sendmany", &json!([
-      address, [{"address": our_address, "amount": 1}]
-    ])).await?;
-
+    #[derive(Deserialize, Debug)]
+    struct StatusResponse {
+      status: String
+    }
     while {
       let status: Vec<StatusResponse> = self.rpc_call("z_getoperationstatus", &json!([[send]])).await?;
       if status[0].status == "failed" {
