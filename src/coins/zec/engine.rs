@@ -115,7 +115,7 @@ pub struct ZecEngine {
   branch: Option<BranchId>,
 
   #[cfg(test)]
-  wallet_address: String
+  node_address: String
 }
 
 impl ZecEngine {
@@ -141,7 +141,7 @@ impl ZecEngine {
       branch: None,
 
       #[cfg(test)]
-      wallet_address: "".to_string()
+      node_address: "".to_string()
     };
     result.height_at_start = result.get_height().await;
 
@@ -163,7 +163,7 @@ impl ZecEngine {
 
     #[cfg(test)]
     {
-      result.wallet_address = result.rpc_call("z_getnewaddress", &json!([])).await?;
+      result.node_address = result.rpc_call("z_getnewaddress", &json!([])).await?;
     }
 
     Ok(result)
@@ -355,10 +355,10 @@ impl ZecEngine {
         }
         let block_res: BlockResponse = self.rpc_call("getblock", &json!([block.to_string()])).await?;
 
-        if dbg!(Node::new(
+        if Node::new(
           hex::decode(block_res.finalsaplingroot).expect("Sapling root wasn't hex")
             .into_iter().rev().collect::<Vec<u8>>()[..].try_into().expect("Sapling root wasn't 32 bytes")
-        )) != dbg!(self.tree.root()) {
+        ) != self.tree.root() {
           anyhow::bail!("Block root doesn't match");
         }
 
@@ -437,7 +437,7 @@ impl ZecEngine {
         opid: String
       }
       let mut shield: anyhow::Result<ShieldResponse> = self.rpc_call("z_shieldcoinbase", &json!([
-        "*", &self.wallet_address
+        "*", &self.node_address
       ])).await;
 
       if shield.is_ok() {
@@ -450,10 +450,11 @@ impl ZecEngine {
           if status[0].status == "failed" {
             tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
             shield = self.rpc_call("z_shieldcoinbase", &json!([
-              "*", &self.wallet_address
+              "*", &self.node_address
             ])).await;
           }
-          status[0].status != "success"
+          (status[0].status != "success") && shield.is_ok() // Needed due to the tests being run in parallel.
+                                                            // It can fail if another test picks it up.
         } {
           tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
         }
@@ -470,9 +471,9 @@ impl ZecEngine {
       self.mine_block().await?;
     }
 
-    let our_address = self.get_deposit_address();
+    let address = self.get_deposit_address();
     let send: String = self.rpc_call("z_sendmany", &json!([
-      &self.wallet_address, [{"address": our_address, "amount": 1}]
+      &self.node_address, [{"address": address, "amount": 1}]
     ])).await?;
 
     // This is needed for some reason
