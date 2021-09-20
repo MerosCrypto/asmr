@@ -35,6 +35,12 @@ nanocurrency-types = "0.3.19"
 num_cpus = "1.13.0"
 monero = "0.8.1"
 digest_auth = "0.2.3"
+ff = "0.8"
+group = "0.8"
+jubjub = "0.5.1"
+zcash_primitives = "0.5.0"
+zcash_proofs = "0.5.0"
+zcash_client_backend = "0.5.0"
 
 [features]
 no_confs = []
@@ -42,6 +48,7 @@ test_bitcoin_node = []
 test_meros_node = []
 test_nano_node = []
 test_monero_node = []
+test_zcash_node = []
 
 # Always optimize dependencies
 [profile.dev.package."*"]

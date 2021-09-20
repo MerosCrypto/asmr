@@ -2,6 +2,7 @@ pub mod btc;
 pub mod meros;
 pub mod nano;
 pub mod xmr;
+pub mod zec;
 
 use std::marker::PhantomData;
 
@@ -55,7 +56,7 @@ pub trait UnscriptedClient {
 
   fn get_address(&mut self) -> String;
   async fn wait_for_deposit(&mut self) -> anyhow::Result<()>;
-  async fn refund<Verifier: ScriptedVerifier >(self, verifier: Verifier) -> anyhow::Result<()>;
+  async fn refund<Verifier: ScriptedVerifier>(self, verifier: Verifier) -> anyhow::Result<()>;
 
   #[cfg(test)]
   fn override_refund_with_random_address(&mut self);
@@ -73,7 +74,8 @@ pub trait UnscriptedClient {
 pub enum AnyUnscriptedClient {
   Meros(meros::client::MerosClient),
   Nano(nano::client::NanoClient),
-  Monero(xmr::client::XmrClient)
+  Monero(xmr::client::XmrClient),
+  ZCashShielded(zec::client::ZecShieldedClient)
 }
 
 #[async_trait]
@@ -118,7 +120,7 @@ pub trait UnscriptedVerifier: Send + Sync {
   fn verify_dleq_for_engine<OtherCrypt: CryptEngine>(&mut self, dleq: &[u8], phantom: PhantomData<&OtherCrypt>) -> anyhow::Result<OtherCrypt::PublicKey>;
 
   async fn verify_and_wait_for_send(&mut self) -> anyhow::Result<()>;
-  async fn finish<Host: ScriptedHost >(&mut self, host: &Host) -> anyhow::Result<()>;
+  async fn finish<Host: ScriptedHost>(&mut self, host: &Host) -> anyhow::Result<()>;
 }
 
 #[enum_dispatch]
@@ -126,4 +128,5 @@ pub enum AnyUnscriptedVerifier {
   Meros(meros::verifier::MerosVerifier),
   Nano(nano::verifier::NanoVerifier),
   Monero(xmr::verifier::XmrVerifier),
+  ZCashShielded(zec::verifier::ZecShieldedVerifier)
 }

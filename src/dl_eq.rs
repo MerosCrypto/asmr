@@ -11,7 +11,7 @@ use crate::crypt_engines::CryptEngine;
 
 /// The number of bits shared keys can be specified with.
 /// Limited by ed25519's scalar modulus, which is 2^252 and change.
-pub const SHARED_KEY_BITS: usize = 252;
+pub const SHARED_KEY_BITS: usize = 251;
 
 #[derive(Serialize, Deserialize)]
 pub struct DlEqProof<EngineA: CryptEngine, EngineB: CryptEngine> {
@@ -25,8 +25,8 @@ impl<EngineA: CryptEngine, EngineB: CryptEngine> DlEqProof<EngineA, EngineB> {
   pub fn new() -> (Self, EngineA::PrivateKey, EngineB::PrivateKey) {
     let mut key = [0u8; 32];
     OsRng.fill_bytes(&mut key);
-    assert_eq!(SHARED_KEY_BITS, 252); // Change the following line if this changes
-    key[31] &= 0b0000_1111; // Chop off bits that might be greater than the curve modulus
+    assert_eq!(SHARED_KEY_BITS, 251); // Change the following line if this changes
+    key[31] &= 0b0000_0111; // Chop off bits that might be greater than the curve modulus
     let full_commitments_a = EngineA::dl_eq_generate_commitments(key).unwrap();
     let full_commitments_b = EngineB::dl_eq_generate_commitments(key).unwrap();
     assert_eq!(full_commitments_a.len(), SHARED_KEY_BITS);

@@ -60,7 +60,9 @@ pub enum UnscriptedCoin {
   Meros,
   Nano,
   #[enumeration(alias = "xmr")]
-  Monero
+  Monero,
+  #[enumeration(alias = "zec")]
+  ZCashShielded,
 }
 
 enum AnyCoin {
