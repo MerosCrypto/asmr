@@ -14,7 +14,7 @@ While this is designed to be complete and accurate, it offers no security guaran
 
 It should be noted Bitcoin usually has a major problem with transaction IDs. When this problem is left unresolved, Alice (the person with Meros/Monero) is able to cause Bob (the person with bitcoin) to lose their coins. While Alice would not gain anything in this circumstance, they also would not lose anything. This one-sided disadvantage goes against the safeties atomic swaps offer, and is possible because Bitcoin transaction IDs are malleable. Alice can commit to a refund transaction spending lock X, watch lock X be sent to the network, but then change an 'insignificant' piece of data causing lock X to become lock Y. If lock Y was archived on the blockchain, Alice would have lost nothing, yet Bob's bitcoin would be gone forever.
 
-There's only one type of Bitcoin transaction which does not have this risk; SegWit transactions. SegWit was designed with one of the goals being removing malleability problems, and is therefore used by this library. That said, any Bitcoin-fork without SegWit, or any similar transaction malleability guarantees, will not work securely with this library (any by definition cannot implement this swap protocol atomically).
+There's only one type of Bitcoin transaction which does not have this risk: SegWit transactions. SegWit was designed with one of the goals being removing malleability problems, and is therefore used by this library. That said, any Bitcoin-fork without SegWit, or any similar transaction malleability guarantees, will not work securely with this library (any by definition cannot implement this swap protocol atomically).
 
 The whitepaper does directly address this problem.
 
