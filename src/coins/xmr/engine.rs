@@ -302,10 +302,6 @@ impl XmrEngine {
     struct WalletResponse {
       address: String
     }
-    #[derive(Deserialize, Debug)]
-    struct SweepResponse {
-      tx_hash_list: Vec<String>
-    }
 
     let spend_key = spend_key + self.k.expect("Claiming funds before generating a k");
     let address = Address::standard(
@@ -348,7 +344,7 @@ impl XmrEngine {
     let _: EmptyResponse = self.wallet_call("rescan_blockchain", json!({})).await?.result;
 
     // Use sweep to forward the funds
-    let _: SweepResponse = self.wallet_call("sweep_all", json!({
+    let _: EmptyResponse = self.wallet_call("sweep_all", json!({
       "address": destination,
     })).await.expect("Couldn't transfer the Monero").result;
 
@@ -360,10 +356,6 @@ impl XmrEngine {
     #[derive(Deserialize, Debug)]
     struct AddressResponse {
       address: String
-    }
-    #[derive(Deserialize, Debug)]
-    struct TransactionResponse {
-      tx_hash: String
     }
 
     // Create a new wallet
@@ -386,7 +378,7 @@ impl XmrEngine {
     let _: EmptyResponse = self.wallet_call("rescan_blockchain", json!({})).await?.result;
 
     // Send 1 XMR to our address
-    let _: TransactionResponse = self.wallet_call("transfer", json!({
+    let _: EmptyResponse = self.wallet_call("transfer", json!({
       "destinations": [{
         "address": Address::from_viewpair(NETWORK, &self.get_view_pair()).to_string(),
         "amount": (1000000000000 as u64)

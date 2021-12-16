@@ -1,6 +1,5 @@
 use std::{
   marker::PhantomData,
-  fmt::Debug,
   path::Path,
   fs::File
 };
@@ -12,8 +11,6 @@ use digest::Digest;
 
 use secp256kfun::{marker::*, Scalar, Point, G, g};
 use dleq::engines::secp256kfun::Secp256k1Engine;
-
-use serde::Deserialize;
 
 use bitcoin::{
   secp256k1,
@@ -176,14 +173,6 @@ impl ScriptedHost for BtcHost {
   async fn create_lock_and_prepare_refund(
     &mut self
   ) -> anyhow::Result<Vec<u8>> {
-    #[derive(Deserialize, Debug)]
-    struct UnspentInputResponse {
-      height: u32,
-      tx_hash: String,
-      tx_pos: u32,
-      value: u64
-    }
-
     let client = self.client.as_ref().expect("Creating lock before verifying keys");
     let client_refund = self.client_refund.as_ref().expect("Creating lock before verifying keys");
 

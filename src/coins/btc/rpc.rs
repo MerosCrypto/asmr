@@ -113,7 +113,6 @@ impl BtcRpc {
   pub async fn get_address_history(&self, address: &str) -> Vec<AddressHistoryItem> {
     #[derive(Deserialize, Debug)]
     struct AddressHistoryResponse {
-      fee: Option<u64>,
       height: isize,
       tx_hash: String
     }
