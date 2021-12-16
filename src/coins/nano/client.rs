@@ -17,12 +17,14 @@ use dleq::engines::ed25519::Ed25519Engine;
 use nanocurrency_types::{Account, BlockHash};
 
 use crate::{
-  crypto::{KeyBundle, ed25519},
+  crypto::{KeyBundle},
   coins::{
     UnscriptedClient, ScriptedVerifier,
     nano::engine::{NanoConfig, NanoEngine}
   }
 };
+#[cfg(test)]
+use crate::crypto::ed25519;
 
 pub struct NanoClient {
   engine: NanoEngine,

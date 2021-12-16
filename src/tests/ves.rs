@@ -59,7 +59,6 @@ fn ed25519() {
   let dec_sig = ed25519::decrypt_signature(&enc_sig, &encryption_key)
     .expect("Failed to decrypt signature");
 
-  let pubkey_bytes = pub_signing_key.compress().to_bytes();
   // Reuse encrypted verification with a zero encryption key to verify the decrypted signature
   ed25519::encrypted_verify::<Blake2b>(&pub_signing_key, &curve25519_dalek::traits::Identity::identity(), &dec_sig, &message).unwrap();
 
