@@ -4,7 +4,7 @@ use std::{
   time::Duration
 };
 
-use tokio::time::delay_for;
+use tokio::time::sleep;
 
 use crate::{
   coins::{
@@ -55,7 +55,7 @@ pub async fn run_test<F, Fut>(host_test: bool, test: F)
     assert_eq!(should_have_funds, host.get_if_funded(&host_refund).await);
   } else {
     let client = NanoClient::new(&unscripted).unwrap();
-    delay_for(Duration::from_secs(5)).await; // wait for the transaction to be confirmed
+    sleep(Duration::from_secs(5)).await; // wait for the transaction to be confirmed
     assert_eq!(should_have_funds, client.get_if_funded(&client_refund).await);
   }
 }

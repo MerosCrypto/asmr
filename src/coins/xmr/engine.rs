@@ -6,6 +6,12 @@ use lazy_static::lazy_static;
 use hex_literal::hex;
 use rand::{rngs::OsRng, RngCore};
 
+use curve25519_dalek::{
+  scalar::Scalar,
+  edwards::{EdwardsPoint, CompressedEdwardsY},
+  constants::ED25519_BASEPOINT_TABLE
+};
+
 use serde::{Serialize, Deserialize, de::DeserializeOwned};
 use serde_json::json;
 
@@ -25,7 +31,7 @@ use monero::{
   network::Network
 };
 
-use crate::crypt_engines::{CryptEngine, ed25519_engine::Ed25519Sha};
+use crate::crypto::ed25519::random_scalar;
 
 #[cfg(not(feature = "no_confs"))]
 pub const CONFIRMATIONS: isize = 3;
@@ -40,7 +46,9 @@ pub const CONFIRMATIONS: isize = 1;
 pub const NETWORK: Network = Network::Mainnet;
 
 lazy_static! {
-  pub static ref C: <Ed25519Sha as CryptEngine>::PublicKey = Ed25519Sha::bytes_to_public_key(&hex!("8b655970153799af2aeadc9ff1add0ea6c7251d54154cfa92c173a0dd39c1f94")).unwrap();
+  pub static ref C: EdwardsPoint = CompressedEdwardsY::from_slice(
+    &hex!("8b655970153799af2aeadc9ff1add0ea6c7251d54154cfa92c173a0dd39c1f94")
+  ).decompress().unwrap();
 }
 
 #[derive(Deserialize, Debug)]
@@ -62,16 +70,16 @@ pub struct XmrConfig {
 
 #[derive(Serialize, Deserialize)]
 pub struct XmrKeys {
-  pub dl_eq: Vec<u8>,
+  pub dleq: Vec<u8>,
   pub view_share: [u8; 32]
 }
 
 pub struct XmrEngine {
   pub config: XmrConfig,
 
-  pub k: Option<<Ed25519Sha as CryptEngine>::PrivateKey>,
-  pub view: <Ed25519Sha as CryptEngine>::PrivateKey,
-  spend: Option<<Ed25519Sha as CryptEngine>::PublicKey>,
+  pub k: Option<Scalar>,
+  pub view: Scalar,
+  spend: Option<EdwardsPoint>,
 
   height_at_start: isize,
   deposit: Option<String>,
@@ -85,7 +93,7 @@ impl XmrEngine {
       config,
 
       k: None,
-      view: Ed25519Sha::new_private_key(),
+      view: random_scalar(),
       spend: None,
 
       height_at_start: -1,
@@ -97,8 +105,8 @@ impl XmrEngine {
     Ok(result)
   }
 
-  pub fn set_spend(&mut self, other: <Ed25519Sha as CryptEngine>::PublicKey) {
-    self.spend = Some(Ed25519Sha::to_public_key(&self.k.expect("Verifying keys before generating")) + other);
+  pub fn set_spend(&mut self, other: EdwardsPoint) {
+    self.spend = Some((&self.k.expect("Verifying keys before generating") * &ED25519_BASEPOINT_TABLE) + other);
   }
 
   pub fn get_view_pair(&self) -> ViewPair {
@@ -178,7 +186,7 @@ impl XmrEngine {
     #[derive(Deserialize, Debug)]
     struct HeightResponse {
       height: isize
-    };
+    }
     self.rpc_call::<Option<()>, HeightResponse>("get_height", None).await.expect("Failed to get the height").height
   }
 
@@ -191,7 +199,7 @@ impl XmrEngine {
     #[derive(Deserialize, Debug)]
     struct TransactionsResponse {
       txs: Vec<TransactionResponse>
-    };
+    }
 
     let txs: TransactionsResponse = self.rpc_call("get_transactions", Some(json!({
       "txs_hashes": [hash_hex]
@@ -249,7 +257,7 @@ impl XmrEngine {
             .await?
             .expect("Couldn't get transaction included in block");
 
-          let outputs = result.0.prefix.check_outputs(pair, 0..1, 0..1);
+          let outputs = result.0.check_outputs(pair, 0..1, 0..1);
           if outputs.is_err() || (outputs.unwrap().len() == 0) {
             continue;
           }
@@ -266,7 +274,7 @@ impl XmrEngine {
       if !wait {
         return Ok(None);
       }
-      tokio::time::delay_for(std::time::Duration::from_secs(10)).await;
+      tokio::time::sleep(std::time::Duration::from_secs(10)).await;
     }
     if !wait {
       return Ok(Some(result.0));
@@ -274,7 +282,7 @@ impl XmrEngine {
 
     let mut confirmation_height = result.1;
     while self.get_height().await - confirmation_height < CONFIRMATIONS {
-      tokio::time::delay_for(std::time::Duration::from_secs(10)).await;
+      tokio::time::sleep(std::time::Duration::from_secs(10)).await;
       confirmation_height = self.get_transaction(&tx_hash).await?.unwrap().1;
       if confirmation_height != block {
         anyhow::bail!("Transaction's confirmation height changed");
@@ -287,7 +295,7 @@ impl XmrEngine {
 
   pub async fn claim(
     &self,
-    spend_key: <Ed25519Sha as CryptEngine>::PrivateKey,
+    spend_key: Scalar,
     destination: &str
   ) -> anyhow::Result<()> {
     #[derive(Deserialize, Debug)]
@@ -303,10 +311,10 @@ impl XmrEngine {
     let address = Address::standard(
       NETWORK,
       PublicKey {
-        point: Ed25519Sha::to_public_key(&spend_key).compress()
+        point: (&spend_key * &ED25519_BASEPOINT_TABLE).compress()
       },
       PublicKey {
-        point: Ed25519Sha::to_public_key(&self.view).compress()
+        point: (&self.view * &ED25519_BASEPOINT_TABLE).compress()
       }
     ).to_string();
 
@@ -317,8 +325,8 @@ impl XmrEngine {
         "restore_height": self.height_at_start,
         "filename": hex::encode(&name),
         "address": address,
-        "spendkey": hex::encode(&Ed25519Sha::private_key_to_bytes(&spend_key)),
-        "viewkey": hex::encode(&Ed25519Sha::private_key_to_bytes(&self.view)),
+        "spendkey": hex::encode(&spend_key.to_bytes()),
+        "viewkey": hex::encode(&self.view.to_bytes()),
         "password": ""
       })
     ).await.expect("Couldn't create the wallet").result;
@@ -333,7 +341,7 @@ impl XmrEngine {
       #[cfg(test)]
       self.mine_block().await?;
 
-      tokio::time::delay_for(std::time::Duration::from_secs(10)).await;
+      tokio::time::sleep(std::time::Duration::from_secs(10)).await;
     }
 
     // Trigger a rescan

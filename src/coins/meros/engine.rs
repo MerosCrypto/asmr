@@ -2,10 +2,10 @@ use std::net::SocketAddr;
 
 use log::debug;
 use serde::Deserialize;
-use bitcoin::bech32::{self, ToBase32, FromBase32};
+use bitcoin::bech32::{self, ToBase32, FromBase32, Variant};
 
 use crate::{
-  crypt_engines::{CryptEngine, ed25519_engine::Ed25519Sha},
+  crypto::{CryptEngine, ed25519_engine::Ed25519Sha},
   coins::meros::transaction::{Input, Output, Send}
 };
 
@@ -39,7 +39,7 @@ impl MerosEngine {
   pub fn get_address(key: &[u8]) -> String {
     let mut data = vec![0];
     data.extend(key);
-    bech32::encode("mr", data.to_base32()).unwrap()
+    bech32::encode("mr", data.to_base32(), Variant::Bech32).unwrap()
   }
 
   pub fn create_send(

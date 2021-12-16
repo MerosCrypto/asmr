@@ -5,11 +5,18 @@ use std::{
   sync::{Arc, atomic::{self, AtomicBool}, mpsc},
 };
 
-use log::{debug, info};
-use serde::{Serialize, Deserialize, de::DeserializeOwned};
+use curve25519_dalek::{
+  constants::ED25519_BASEPOINT_TABLE,
+  scalar::Scalar
+};
+
 use nanocurrency_types::{Account, BlockInner, BlockHash, Block, BlockHeader};
 
-use crate::crypt_engines::{CryptEngine, ed25519_engine::Ed25519Blake2b};
+use serde::{Serialize, Deserialize, de::DeserializeOwned};
+
+use log::{debug, info};
+
+use crate::crypto::ed25519;
 
 /// A workaround for the Nano RPC returning empty strings instead of empty arrays or objects.
 pub mod nano_rpc_maybe_empty {
@@ -29,7 +36,7 @@ pub mod nano_rpc_maybe_empty {
     #[serde(untagged)]
     enum OrString<T> {
       Thing(T),
-      String(String),
+      String(String)
     }
     match OrString::deserialize(deserializer)? {
       OrString::Thing(t) => Ok(t),
@@ -52,13 +59,13 @@ pub struct NanoConfig {
   #[cfg(test)]
   pub wallet: String,
   #[cfg(test)]
-  pub wallet_account: String,
+  pub wallet_account: String
 }
 
 pub struct NanoEngine {
-  pub k: Option<<Ed25519Blake2b as CryptEngine>::PrivateKey>,
+  pub k: Option<Scalar>,
   pub client: reqwest::Client,
-  pub config: NanoConfig,
+  pub config: NanoConfig
 }
 
 impl NanoEngine {
@@ -66,7 +73,7 @@ impl NanoEngine {
     NanoEngine {
       k: None,
       client: reqwest::Client::new(),
-      config,
+      config
     }
   }
 
@@ -80,7 +87,7 @@ impl NanoEngine {
       Error {
         error: String,
       },
-      Response(T),
+      Response(T)
     }
     let resp = self
       .client
@@ -103,17 +110,17 @@ impl NanoEngine {
       action: &'a str,
       json_block: &'a str,
       subtype: &'a str,
-      block: &'a Block,
+      block: &'a Block
     }
     #[derive(Deserialize, Debug)]
     struct ProcessResponse {
-      hash: String,
+      hash: String
     }
     let req = ProcessRequest {
       action: "process",
       json_block: "true",
       subtype,
-      block,
+      block
     };
     let res: ProcessResponse = self.rpc_call(&req).await?;
     debug_assert_eq!(res.hash, hex::encode_upper(block.get_hash().0));
@@ -145,17 +152,17 @@ impl NanoEngine {
     nonce
   }
 
-  fn complete_block(inner: BlockInner, key: <Ed25519Blake2b as CryptEngine>::PrivateKey, work_threshold: u64) -> Block {
+  fn complete_block(inner: BlockInner, key: Scalar, work_threshold: u64) -> Block {
     let hash = inner.get_hash();
-    let signature = Ed25519Blake2b::sign(&key, &hash.0).unwrap();
+    let signature = ed25519::sign::<blake2::Blake2b>(&key, &hash.0);
     let work = Self::compute_work(inner.root_bytes().clone(), work_threshold);
     Block {
       inner,
       header: BlockHeader {
         signature: nanocurrency_types::Signature::from_bytes(
-          &Ed25519Blake2b::signature_to_bytes(&signature)
+          &signature.serialize()
         ).expect("Generated invalid signature"),
-        work,
+        work
       }
     }
   }
@@ -163,14 +170,14 @@ impl NanoEngine {
   async fn get_work_threshold(&self, is_receive: bool) -> anyhow::Result<u64> {
     #[derive(Serialize, Debug)]
     struct ActiveDifficultyRequest {
-      action: &'static str,
+      action: &'static str
     }
     #[derive(Deserialize, Debug)]
     struct ActiveDifficultyResponse {
-      network_current: String,
+      network_current: String
     }
     let request = ActiveDifficultyRequest {
-      action: "active_difficulty",
+      action: "active_difficulty"
     };
     let resp: ActiveDifficultyResponse = self.rpc_call(&request).await?;
     let mut threshold = u64::from_str_radix(&resp.network_current, 16)?;
@@ -182,21 +189,21 @@ impl NanoEngine {
 
   pub async fn send(
     &self,
-    key_a: <Ed25519Blake2b as CryptEngine>::PrivateKey,
-    key_b: <Ed25519Blake2b as CryptEngine>::PrivateKey,
+    key_a: Scalar,
+    key_b: Scalar,
     input: BlockHash,
     destination: Account,
-    value: u128,
+    value: u128
   ) -> anyhow::Result<()> {
     let total_key = key_a + key_b;
-    let account = Account((&total_key * &curve25519_dalek::constants::ED25519_BASEPOINT_TABLE).compress().to_bytes());
+    let account = Account((&total_key * &ED25519_BASEPOINT_TABLE).compress().to_bytes());
     debug!("Creating Nano send for shared address {}", account);
     let open_inner = BlockInner::State {
       account: account.clone(),
       previous: BlockHash::default(),
       representative: Account([0u8; 32]),
       balance: value,
-      link: input.0,
+      link: input.0
     };
     let open = Self::complete_block(open_inner, total_key, self.get_work_threshold(true).await?);
     self.publish(&open, "open").await?;
@@ -205,7 +212,7 @@ impl NanoEngine {
       previous: open.get_hash(),
       representative: Account([0u8; 32]),
       balance: 0,
-      link: destination.0,
+      link: destination.0
     };
     let send = Self::complete_block(send_inner, total_key, self.get_work_threshold(false).await?);
     self.publish(&send, "send").await?;
@@ -218,22 +225,22 @@ impl NanoEngine {
       action: &'a str,
       account: &'a str,
       source: &'a str,
-      include_only_confirmed: &'a str,
+      include_only_confirmed: &'a str
     }
     #[derive(Deserialize, Debug)]
     struct PendingResponse {
       #[serde(with = "nano_rpc_maybe_empty")]
-      blocks: HashMap<String, PendingBlock>,
+      blocks: HashMap<String, PendingBlock>
     }
     #[derive(Deserialize, Debug, PartialEq)]
     struct PendingBlock {
-      amount: String,
+      amount: String
     }
     let request = PendingRequest {
       action: "pending",
       account,
       source: "true",
-      include_only_confirmed: "true",
+      include_only_confirmed: "true"
     };
     let response: PendingResponse = self.rpc_call(&request).await?;
     response.blocks.into_iter().map(|(hash_str, info)| {
@@ -252,18 +259,18 @@ impl NanoEngine {
       wallet: &'a str,
       source: &'a str,
       destination: &'a str,
-      amount: String,
+      amount: String
     }
     #[derive(Deserialize, Debug)]
     struct SendResponse {
-      block: String,
+      block: String
     }
     let request = SendRequest {
       action: "send",
       wallet: &self.config.wallet,
       source: &self.config.wallet_account,
       destination,
-      amount: amount.to_string(),
+      amount: amount.to_string()
     };
     let resp: SendResponse = self.rpc_call(&request).await?;
     let mut hash = BlockHash::default();

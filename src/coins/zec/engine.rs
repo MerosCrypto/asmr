@@ -8,12 +8,11 @@ use rand::{RngCore, rngs::OsRng};
 
 use digest::Digest;
 
-use serde::{Serialize, Deserialize, de::DeserializeOwned};
-use serde_json::json;
-
-use reqwest;
+use ff::Field;
+use jubjub::{Fr, SubgroupPoint};
 
 use zcash_primitives::{
+  constants::{SPENDING_KEY_GENERATOR, PROOF_GENERATION_KEY_GENERATOR},
   primitives::{ViewingKey, Diversifier, Note},
   sapling::Node,
   merkle_tree::{CommitmentTree, IncrementalWitness},
@@ -27,7 +26,10 @@ use zcash_primitives::{
 use zcash_proofs::prover::LocalTxProver;
 use zcash_client_backend::encoding::{encode_payment_address, decode_payment_address};
 
-use crate::crypt_engines::{CryptEngine, jubjub_engine::JubjubEngine};
+use serde::{Serialize, Deserialize, de::DeserializeOwned};
+use serde_json::json;
+
+use reqwest;
 
 #[cfg(not(feature = "no_confs"))]
 pub const CONFIRMATIONS: isize = 4;
@@ -90,7 +92,7 @@ pub struct ZecConfig {
 
 #[derive(Serialize, Deserialize)]
 pub struct ZecKeys {
-  pub dl_eq: Vec<u8>,
+  pub dleq: Vec<u8>,
   pub nsk: [u8; 32]
 }
 
@@ -98,8 +100,8 @@ pub struct ZecEngine {
   pub config: ZecConfig,
   prover: LocalTxProver,
 
-  pub ask: Option<<JubjubEngine as CryptEngine>::PrivateKey>,
-  pub nsk: <JubjubEngine as CryptEngine>::PrivateKey,
+  pub ask: Option<Fr>,
+  pub nsk: Fr,
   pub vk: Option<ViewingKey>,
   diversifier: Option<Diversifier>,
 
@@ -129,7 +131,7 @@ impl ZecEngine {
       ),
 
       ask: None,
-      nsk: JubjubEngine::new_private_key(),
+      nsk: Fr::random(&mut OsRng),
       vk: None,
       diversifier: None,
 
@@ -211,16 +213,13 @@ impl ZecEngine {
 
   pub fn set_ak_nsk(
     &mut self,
-    ak: &<JubjubEngine as CryptEngine>::PublicKey,
-    nsk: &<JubjubEngine as CryptEngine>::PrivateKey
+    ak: SubgroupPoint,
+    nsk: Fr
   ) {
-    self.nsk = JubjubEngine::add_private_key(&self.nsk, nsk);
+    self.nsk = self.nsk + nsk;
     let vk = ViewingKey {
-      ak: JubjubEngine::add_public_key(&JubjubEngine::to_public_key(
-        &self.ask.as_ref().expect("Key exchange occurring before generating keys")),
-        ak
-      ),
-      nk: JubjubEngine::mul_by_proof_generation_generator(&self.nsk)
+      ak: ak + (SPENDING_KEY_GENERATOR * self.ask.as_ref().expect("Key exchange occurring before generating keys")),
+      nk: PROOF_GENERATION_KEY_GENERATOR * &self.nsk
     };
 
     // Seemingly random, generated using common data so we don't need to send another mutual variable
@@ -231,7 +230,7 @@ impl ZecEngine {
       // DST for extra safety. If for some reason H(self.nsk) must be kept secret, this ensures it
       // While we'd only leak 11 bytes, that's still a 88-bit reduction
       .chain("asmr diversifier")
-      .chain(&JubjubEngine::private_key_to_bytes(&self.nsk))
+      .chain(&self.nsk.to_bytes())
       .finalize()[..11]
     );
     // Recursively hash the diversifier until a valid one is found
@@ -372,14 +371,14 @@ impl ZecEngine {
       if !wait {
         return Ok(None);
       }
-      tokio::time::delay_for(std::time::Duration::from_secs(10)).await;
+      tokio::time::sleep(std::time::Duration::from_secs(10)).await;
     }
 
     while self.get_confirmations(&tx_hash, &block_hash).await? < CONFIRMATIONS {
       if !wait {
         return Ok(None);
       }
-      tokio::time::delay_for(std::time::Duration::from_secs(10)).await;
+      tokio::time::sleep(std::time::Duration::from_secs(10)).await;
     }
 
     return Ok(Some(self.note.as_ref().unwrap().value));
@@ -387,7 +386,7 @@ impl ZecEngine {
 
   pub async fn claim(
     &self,
-    ask: <JubjubEngine as CryptEngine>::PrivateKey,
+    ask: Fr,
     destination: &str
   ) -> anyhow::Result<()> {
     let destination = decode_payment_address(HRP_SAPLING_PAYMENT_ADDRESS, destination)?.expect("Invalid destination address");
@@ -400,10 +399,8 @@ impl ZecEngine {
     let mut stub_ovk = [0; 32];
     OsRng.fill_bytes(&mut stub_ovk);
     esk.expsk = ExpandedSpendingKey {
-      ask: JubjubEngine::get_scalar(
-        &JubjubEngine::add_private_key(&self.ask.as_ref().expect("Claiming despite never setting our key share"), &ask)
-      ),
-      nsk: JubjubEngine::get_scalar(&self.nsk),
+      ask: ask + self.ask.as_ref().expect("Claiming despite never setting our key share"),
+      nsk: self.nsk,
       ovk: OutgoingViewingKey(stub_ovk)
     };
 
@@ -448,7 +445,7 @@ impl ZecEngine {
         while {
           let status: Vec<StatusResponse> = self.rpc_call("z_getoperationstatus", &json!([[shield.as_ref().unwrap().opid]])).await?;
           if status[0].status == "failed" {
-            tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
             shield = self.rpc_call("z_shieldcoinbase", &json!([
               "*", &self.node_address
             ])).await;
@@ -456,7 +453,7 @@ impl ZecEngine {
           (status[0].status != "success") && shield.is_ok() // Needed due to the tests being run in parallel.
                                                             // It can fail if another test picks it up.
         } {
-          tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
+          tokio::time::sleep(std::time::Duration::from_secs(1)).await;
         }
       }
       let _: Vec<String> = self.rpc_call("generate", &json!([1])).await?;
@@ -480,7 +477,7 @@ impl ZecEngine {
     // Given that we wait for the operation to succeed before mining blocks, and wait on that, I have no idea why
     // Potentially a delay in parsing the info relevant to our wallet out of the above sapling send
     // Therefore, this should be updated, yet for now, it works
-    tokio::time::delay_for(std::time::Duration::from_secs(3)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
     #[derive(Deserialize, Debug)]
     struct StatusResponse {
@@ -493,7 +490,7 @@ impl ZecEngine {
       }
       status[0].status != "success"
     } {
-      tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
+      tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     }
     self.mine_block().await?;
 

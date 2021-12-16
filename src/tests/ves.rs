@@ -1,46 +1,16 @@
 use digest::Digest;
+
+use rand::rngs::OsRng;
+
+use curve25519_dalek::{
+  scalar,
+  constants::ED25519_BASEPOINT_TABLE
+};
+use secp256kfun::{marker::*, g, G};
+
 use bitcoin::secp256k1::{self, Secp256k1};
 
-use crate::{
-  crypt_engines::{
-    CryptEngine,
-    ed25519_engine::Ed25519Sha, secp256k1_engine::Secp256k1Engine
-  }
-};
-
-fn test_crypt_engine_ves<
-  Engine: CryptEngine,
-  F
->(verify_signature: F) where F: Fn(
-  &Engine::Signature,
-  &Engine::PublicKey, &[u8]
-) -> anyhow::Result<()> {
-  let signing_key = Engine::new_private_key();
-  let pub_signing_key = Engine::to_public_key(&signing_key);
-  let encryption_key = Engine::new_private_key();
-  let pub_encryption_key = Engine::to_public_key(&encryption_key);
-  let message: [u8; 32] = sha2::Sha256::digest(b"hello world").into();
-  let enc_sig = Engine::encrypted_sign(&signing_key, &pub_encryption_key, &message)
-    .expect("Failed to create encrypted signature");
-  Engine::encrypted_verify(&pub_signing_key, &pub_encryption_key, &enc_sig, &message)
-    .expect("Failed to verify encrypted signature");
-  let dec_sig = Engine::decrypt_signature(&enc_sig, &encryption_key)
-    .expect("Failed to decrypt signature");
-  verify_signature(&dec_sig, &pub_signing_key, &message)
-    .expect("Failed to verify decrypted signature");
-  let recreated_encryption_key = Engine::recover_key(&pub_encryption_key, &enc_sig, &dec_sig)
-    .expect("Failed to recover signature encryption key");
-  assert_eq!(hex::encode(Engine::private_key_to_bytes(&encryption_key)), hex::encode(Engine::private_key_to_bytes(&recreated_encryption_key)));
-}
-
-#[test]
-fn ed25519() {
-  let _ = env_logger::builder().is_test(true).try_init();
-  test_crypt_engine_ves::<Ed25519Sha, _>(|sig, pubkey, message| {
-    // Reuse encrypted verification with a zero encryption key to verify the decrypted signature
-    Ed25519Sha::encrypted_verify(pubkey, &curve25519_dalek::traits::Identity::identity(), &sig, message)
-  });
-}
+use crate::crypto::{secp256k1 as Secp256k1Engine, ed25519};
 
 #[test]
 fn secp256k1() {
@@ -49,13 +19,54 @@ fn secp256k1() {
     pub static ref SECP: Secp256k1<secp256k1::All> = Secp256k1::new();
   }
 
-  test_crypt_engine_ves::<Secp256k1Engine, _>(|sig, pubkey, message| {
-    let sig_bytes = Secp256k1Engine::signature_to_bytes(sig);
-    let pubkey_bytes = Secp256k1Engine::public_key_to_bytes(pubkey);
-    let no_fun_message = secp256k1::Message::from_slice(message)?;
-    let no_fun_sig = secp256k1::Signature::from_compact(&sig_bytes)?;
-    let no_fun_pubkey = secp256k1::PublicKey::from_slice(&pubkey_bytes)?;
-    SECP.verify(&no_fun_message, &no_fun_sig, &no_fun_pubkey)?;
-    Ok(())
-  });
+  let signing_key = secp256kfun::Scalar::random(&mut OsRng);
+  let pub_signing_key = g!(signing_key * G).mark::<Normal>();
+  let encryption_key = secp256kfun::Scalar::random(&mut OsRng);
+  let pub_encryption_key = g!(encryption_key * G).mark::<Normal>();
+  let message: [u8; 32] = sha2::Sha256::digest(b"hello world").into();
+
+  let enc_sig = Secp256k1Engine::encrypted_sign(&signing_key, &pub_encryption_key, &message)
+    .expect("Failed to create encrypted signature");
+  Secp256k1Engine::encrypted_verify(&pub_signing_key, &pub_encryption_key, &enc_sig, &message)
+    .expect("Failed to verify encrypted signature");
+  let dec_sig = Secp256k1Engine::decrypt_signature(&enc_sig, &encryption_key)
+    .expect("Failed to decrypt signature");
+
+  let sig_bytes = dec_sig.serialize();
+  let pubkey_bytes = pub_signing_key.to_bytes();
+  let no_fun_message = secp256k1::Message::from_slice(&message).unwrap();
+  let no_fun_sig = secp256k1::Signature::from_compact(&sig_bytes).unwrap();
+  let no_fun_pubkey = secp256k1::PublicKey::from_slice(&pubkey_bytes).unwrap();
+  SECP.verify(&no_fun_message, &no_fun_sig, &no_fun_pubkey).expect("Decrypted invalid signature");
+
+  let recreated_encryption_key = Secp256k1Engine::recover_key(&pub_encryption_key, &enc_sig, &dec_sig)
+    .expect("Failed to recover signature encryption key");
+  assert_eq!(&encryption_key, &recreated_encryption_key);
+}
+
+#[test]
+fn ed25519() {
+  let _ = env_logger::builder().is_test(true).try_init();
+
+  let signing_key = scalar::Scalar::random(&mut OsRng);
+  let pub_signing_key = &signing_key * &ED25519_BASEPOINT_TABLE;
+  let encryption_key = scalar::Scalar::random(&mut OsRng);
+  let pub_encryption_key = &encryption_key * &ED25519_BASEPOINT_TABLE;
+  let message: [u8; 32] = sha2::Sha256::digest(b"hello world").into();
+
+  let enc_sig = ed25519::encrypted_sign(&signing_key, &pub_encryption_key, &message)
+    .expect("Failed to create encrypted signature");
+  ed25519::encrypted_verify(&pub_signing_key, &pub_encryption_key, &enc_sig, &message)
+    .expect("Failed to verify encrypted signature");
+  let dec_sig = ed25519::decrypt_signature(&enc_sig, &encryption_key)
+    .expect("Failed to decrypt signature");
+
+  let sig_bytes = dec_sig.serialize();
+  let pubkey_bytes = pub_signing_key.compress().to_bytes();
+  // Reuse encrypted verification with a zero encryption key to verify the decrypted signature
+  ed25519::encrypted_verify(&pub_signing_key, &curve25519_dalek::traits::Identity::identity(), &dec_sig, &message);
+
+  let recreated_encryption_key = ed25519::recover_key(&pub_encryption_key, &enc_sig, &dec_sig)
+    .expect("Failed to recover signature encryption key");
+  assert_eq!(&encryption_key, &recreated_encryption_key);
 }

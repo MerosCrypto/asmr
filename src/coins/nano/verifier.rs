@@ -2,26 +2,31 @@ use std::{
   marker::PhantomData,
   io::Write,
   path::Path,
-  fs::File,
+  fs::File
 };
 
 use async_trait::async_trait;
+
+use dleq::{DLEqProof, engines::{DLEqEngine, ed25519::Ed25519Engine}};
+
+use curve25519_dalek::{
+  scalar::Scalar,
+  edwards::EdwardsPoint,
+  constants::ED25519_BASEPOINT_TABLE
+};
+
 use nanocurrency_types::{Account, BlockHash};
 
-use crate::{
-  crypt_engines::{CryptEngine, ed25519_engine::Ed25519Blake2b},
-  dl_eq::DlEqProof,
-  coins::{
-    UnscriptedVerifier, ScriptedHost,
-    nano::engine::{NanoConfig, NanoEngine},
-  },
+use crate::coins::{
+  UnscriptedVerifier, ScriptedHost,
+  nano::engine::{NanoConfig, NanoEngine},
 };
 
 pub struct NanoVerifier {
   engine: NanoEngine,
   destination_key: Account,
 
-  shared_key: Option<<Ed25519Blake2b as CryptEngine>::PublicKey>,
+  shared_key: Option<EdwardsPoint>,
   input: Option<(BlockHash, u128)>,
 }
 
@@ -42,15 +47,15 @@ impl NanoVerifier {
 
 #[async_trait]
 impl UnscriptedVerifier for NanoVerifier {
-  fn generate_keys_for_engine<OtherCrypt: CryptEngine>(&mut self, _: PhantomData<&OtherCrypt>) -> (Vec<u8>, OtherCrypt::PrivateKey) {
-    let (proof, key1, key2) = DlEqProof::<Ed25519Blake2b, OtherCrypt>::new();
+  fn generate_keys_for_engine<OtherCrypt: DLEqEngine>(&mut self, _: PhantomData<&OtherCrypt>) -> (Vec<u8>, OtherCrypt::PrivateKey) {
+    let (proof, key1, key2) = DLEqProof::<Ed25519Engine, OtherCrypt>::new(&mut rand::rngs::OsRng);
     self.engine.k = Some(key1);
-    self.shared_key = Some(Ed25519Blake2b::to_public_key(&key1));
-    (proof.serialize(), key2)
+    self.shared_key = Some(&key1 * &ED25519_BASEPOINT_TABLE);
+    (proof.serialize().expect("Couldn't deserialize DLEq proof"), key2)
   }
 
-  fn verify_dleq_for_engine<OtherCrypt: CryptEngine>(&mut self, dleq: &[u8], _: PhantomData<&OtherCrypt>) -> anyhow::Result<OtherCrypt::PublicKey> {
-    let dleq = DlEqProof::<OtherCrypt, Ed25519Blake2b>::deserialize(dleq)?;
+  fn verify_dleq_for_engine<OtherCrypt: DLEqEngine>(&mut self, dleq: &[u8], _: PhantomData<&OtherCrypt>) -> anyhow::Result<OtherCrypt::PublicKey> {
+    let dleq = DLEqProof::<OtherCrypt, Ed25519Engine>::deserialize(dleq)?;
     let (key1, key2) = dleq.verify()?;
     self.shared_key = Some(self.shared_key.expect("Verifying DLEQ proof before generating keys") + key2);
     Ok(key1)
@@ -73,7 +78,7 @@ impl UnscriptedVerifier for NanoVerifier {
 
       // Don't immediately run the next loop iteration
       if self.input.is_none() {
-        tokio::time::delay_for(std::time::Duration::from_secs(5)).await;
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
       }
     }
 
@@ -93,7 +98,7 @@ impl UnscriptedVerifier for NanoVerifier {
   async fn finish<Host: ScriptedHost>(&mut self, host: &Host) -> anyhow::Result<()> {
     let input = self.input.clone().expect("Finishing before knowing of the UTXOs");
     self.engine.send(
-      Ed25519Blake2b::little_endian_bytes_to_private_key(host.recover_final_key().await?)?,
+      Scalar::from_bytes_mod_order(host.recover_final_key().await?),
       self.engine.k.expect("Finishing before generating keys"),
       input.0,
       self.destination_key.clone(),

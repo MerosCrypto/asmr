@@ -7,9 +7,10 @@ use std::{
 
 use async_trait::async_trait;
 
+use dleq::DLEqProof;
+
 use crate::{
-  crypt_engines::{CryptEngine, ed25519_engine::Ed25519Sha},
-  dl_eq::DlEqProof,
+  crypto::{CryptEngine, ed25519_engine::Ed25519Sha},
   coins::{
     UnscriptedVerifier, ScriptedHost,
     meros::{
@@ -48,15 +49,15 @@ impl MerosVerifier {
 
 #[async_trait]
 impl UnscriptedVerifier for MerosVerifier {
-  fn generate_keys_for_engine<OtherCrypt: CryptEngine>(&mut self, _: PhantomData<&OtherCrypt>) -> (Vec<u8>, OtherCrypt::PrivateKey) {
-    let (proof, key1, key2) = DlEqProof::<Ed25519Sha, OtherCrypt>::new();
+  fn generate_keys_for_engine<OtherCrypt: DLEqEngine>(&mut self, _: PhantomData<&OtherCrypt>) -> (Vec<u8>, OtherCrypt::PrivateKey) {
+    let (proof, key1, key2) = DLEqProof::<Ed25519Engine, OtherCrypt>::new(&mut rand::rngs::OsRng);
     self.engine.k = Some(key1);
     self.shared_key = Some(Ed25519Sha::to_public_key(&key1));
     (proof.serialize(), key2)
   }
 
-  fn verify_dleq_for_engine<OtherCrypt: CryptEngine>(&mut self, dleq: &[u8], _: PhantomData<&OtherCrypt>) -> anyhow::Result<OtherCrypt::PublicKey> {
-    let dleq = DlEqProof::<OtherCrypt, Ed25519Sha>::deserialize(dleq)?;
+  fn verify_dleq_for_engine<OtherCrypt: DLEqEngine>(&mut self, dleq: &[u8], _: PhantomData<&OtherCrypt>) -> anyhow::Result<OtherCrypt::PublicKey> {
+    let dleq = DLEqProof::<OtherCrypt, Ed25519Engine>::deserialize(dleq)?;
     let (key1, key2) = dleq.verify()?;
     self.shared_key = Some(self.shared_key.expect("Verifying DLEQ proof before generating keys") + key2);
     Ok(key1)
@@ -99,7 +100,7 @@ impl UnscriptedVerifier for MerosVerifier {
       // Don't immediately run the next loop iteration
       done = done && (result.len() != 0);
       if !done {
-        tokio::time::delay_for(std::time::Duration::from_secs(5)).await;
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
       }
     }
     self.value_sum = Some(value_sum);

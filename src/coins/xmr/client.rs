@@ -1,26 +1,33 @@
-#[allow(unused_imports)]
 use std::{
   marker::PhantomData,
-  convert::TryInto,
   path::Path,
   fs::File
 };
 
+#[cfg(test)]
+use std::convert::TryInto;
+
 use async_trait::async_trait;
 
-#[allow(unused_imports)]
-use monero::util::{
-  key::{PrivateKey, PublicKey, ViewPair},
-  address::Address
-};
+use curve25519_dalek::scalar::Scalar;
+#[cfg(test)]
+use curve25519_dalek::constants::ED25519_BASEPOINT_TABLE;
+
+use dleq::engines::ed25519::Ed25519Engine;
+
+#[cfg(test)]
+use monero::util::key::{PrivateKey, PublicKey, ViewPair};
+use monero::util::address::Address;
 
 use crate::{
-  crypt_engines::{KeyBundle, CryptEngine, ed25519_engine::Ed25519Sha},
+  crypto::KeyBundle,
   coins::{
     ScriptedVerifier, UnscriptedClient,
     xmr::engine::*
   }
 };
+#[cfg(test)]
+use crate::crypto::ed25519::random_scalar;
 
 pub struct XmrClient {
   engine: XmrEngine,
@@ -47,13 +54,13 @@ impl XmrClient {
 #[async_trait]
 impl UnscriptedClient for XmrClient {
   fn generate_keys<Verifier: ScriptedVerifier>(&mut self, verifier: &mut Verifier) -> Vec<u8> {
-    let (dl_eq, key) = verifier.generate_keys_for_engine::<Ed25519Sha>(PhantomData);
+    let (dleq, key) = verifier.generate_keys_for_engine::<Ed25519Engine>(PhantomData);
     self.engine.k = Some(key);
     KeyBundle {
-      dl_eq: bincode::serialize(
+      dleq: bincode::serialize(
         &XmrKeys {
-          dl_eq,
-          view_share: Ed25519Sha::private_key_to_bytes(&self.engine.view)
+          dleq,
+          view_share: self.engine.view.to_bytes()
         }
       ).unwrap(),
       B: verifier.B(),
@@ -67,10 +74,10 @@ impl UnscriptedClient for XmrClient {
     // It comments there a simple rename of dleq should work
     // That said, this demonstrates the need for an extra field entirely
     let mut bundle: KeyBundle = bincode::deserialize(keys)?;
-    let xmr_keys: XmrKeys = bincode::deserialize(&bundle.dl_eq)?;
-    bundle.dl_eq = xmr_keys.dl_eq;
-    self.engine.view += Ed25519Sha::bytes_to_private_key(xmr_keys.view_share)?;
-    self.engine.set_spend(verifier.verify_keys_for_engine::<Ed25519Sha>(&bincode::serialize(&bundle).unwrap(), PhantomData)?);
+    let xmr_keys: XmrKeys = bincode::deserialize(&bundle.dleq)?;
+    bundle.dleq = xmr_keys.dleq;
+    self.engine.view += Scalar::from_bytes_mod_order(xmr_keys.view_share);
+    self.engine.set_spend(verifier.verify_keys_for_engine::<Ed25519Engine>(&bincode::serialize(&bundle).unwrap(), PhantomData)?);
     Ok(())
   }
 
@@ -92,7 +99,7 @@ impl UnscriptedClient for XmrClient {
     } else {
       if let Some(recovered_key) = verifier.claim_refund_or_recover_key().await? {
         self.engine.claim(
-          Ed25519Sha::little_endian_bytes_to_private_key(recovered_key)?,
+          Scalar::from_bytes_mod_order(recovered_key),
           &self.engine.config.refund
         ).await?;
       }
@@ -104,10 +111,10 @@ impl UnscriptedClient for XmrClient {
   fn override_refund_with_random_address(&mut self) {
     self.refund_pair = Some(ViewPair {
       view: PrivateKey {
-        scalar: Ed25519Sha::new_private_key()
+        scalar: random_scalar()
       },
       spend: PublicKey {
-        point: Ed25519Sha::to_public_key(&Ed25519Sha::new_private_key()).compress()
+        point: (&random_scalar() * &ED25519_BASEPOINT_TABLE).compress()
       }
     });
     self.engine.config.refund = Address::from_viewpair(NETWORK, self.refund_pair.as_ref().unwrap()).to_string();
@@ -124,7 +131,7 @@ impl UnscriptedClient for XmrClient {
   #[cfg(test)]
   fn get_refund_address(&self) -> String {
     // Actually return the ViewPair, in order to be able to track the address it maps to
-    hex::encode(Ed25519Sha::private_key_to_bytes(&self.refund_pair.as_ref().unwrap().view.scalar)) +
+    hex::encode(&self.refund_pair.as_ref().unwrap().view.scalar.to_bytes()) +
     &hex::encode(&self.refund_pair.as_ref().unwrap().spend.point.as_bytes())
   }
 
@@ -133,10 +140,10 @@ impl UnscriptedClient for XmrClient {
     let pair = hex::decode(pair).unwrap();
     let pair = ViewPair {
       view: PrivateKey {
-        scalar: Ed25519Sha::bytes_to_private_key(pair[0 .. 32].try_into().unwrap()).unwrap()
+        scalar: Scalar::from_bytes_mod_order(pair[0 .. 32].try_into().unwrap())
       },
       spend: PublicKey {
-        point: Ed25519Sha::bytes_to_public_key(pair[32..].try_into().unwrap()).unwrap().compress()
+        point: (&Scalar::from_bytes_mod_order(pair[32..].try_into().unwrap()) * &ED25519_BASEPOINT_TABLE).compress()
       },
     };
     self.engine.get_deposit(&pair, false).await.expect("Couldn't get if a Transaction to a ViewPair exists").is_some()

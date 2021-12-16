@@ -3,17 +3,19 @@ use std::convert::TryInto;
 use lazy_static::lazy_static;
 use hex_literal::hex;
 
+use rand::rngs::OsRng;
+
+use secp256kfun::{marker::*, Scalar, G, g};
+
 use serde::{Serialize, Deserialize};
 
 use bitcoin::{
   secp256k1::{self, Secp256k1},
   hashes::Hash, hash_types::{Txid, WPubkeyHash},
-  blockdata::{script::Script, transaction::{OutPoint, TxIn, TxOut, Transaction}},
+  blockdata::{script::Script, transaction::{OutPoint, TxIn, TxOut, Transaction, SigHashType}},
   network::constants::Network,
-  util::{address::Address, bip143::SighashComponents}
+  util::{address::Address, bip143::SigHashCache}
 };
-
-use crate::crypt_engines::{CryptEngine, secp256k1_engine::Secp256k1Engine};
 
 pub const T0: u8 = 6;
 pub const T1: u8 = 6;
@@ -63,9 +65,9 @@ pub struct ClientRefundAndSpendSignatures {
 }
 
 pub struct BtcEngine {
-  pub b: <Secp256k1Engine as CryptEngine>::PrivateKey,
-  pub br: <Secp256k1Engine as CryptEngine>::PrivateKey,
-  pub bs: Option<<Secp256k1Engine as CryptEngine>::PrivateKey>,
+  pub b: Scalar,
+  pub br: Scalar,
+  pub bs: Option<Scalar>,
 
   pub lock_script_bytes: Option<Vec<u8>>,
   lock_script: Option<Script>,
@@ -76,8 +78,8 @@ pub struct BtcEngine {
 impl BtcEngine {
   pub fn new() -> BtcEngine {
     BtcEngine {
-      b: Secp256k1Engine::new_private_key(),
-      br: Secp256k1Engine::new_private_key(),
+      b: Scalar::random(&mut OsRng),
+      br: Scalar::random(&mut OsRng),
       bs: None,
 
       lock_script_bytes: None,
@@ -92,23 +94,21 @@ impl BtcEngine {
     Ok(address.script_pubkey())
   }
 
-  pub fn generate_deposit_address() -> (<Secp256k1Engine as CryptEngine>::PrivateKey, String, [u8; 20]) {
-    let key = Secp256k1Engine::new_private_key();
+  pub fn generate_deposit_address() -> (Scalar, String, [u8; 20]) {
+    let key = Scalar::random(&mut OsRng);
     let public_key = &bitcoin::util::key::PublicKey {
       compressed: true,
       key: secp256k1::PublicKey::from_secret_key(
         &SECP,
-        &secp256k1::SecretKey::from_slice(
-          &Secp256k1Engine::private_key_to_bytes(&key)
-        ).expect("Secp256k1Engine generated an invalid secp256k1 key")
+        &secp256k1::SecretKey::from_slice(&key.to_bytes()).expect("secp256kfun generated an invalid secp256k1 key")
       ),
     };
     let mut hash_engine = WPubkeyHash::engine();
-    public_key.write_into(&mut hash_engine);
+    public_key.write_into(&mut hash_engine).expect("Couldn't write a key into a hash engine");
 
     (
       key,
-      Address::p2wpkh(public_key, NETWORK).to_string(),
+      Address::p2wpkh(public_key, NETWORK).unwrap().to_string(),
       // This is the same payload used in the Address
       // The field unfortunately isn't public though
       WPubkeyHash::from_engine(hash_engine).as_ref().try_into().expect("Couldn't convert a twenty-byte hash to a twenty-byte array")
@@ -124,8 +124,8 @@ impl BtcEngine {
     other: &[u8],
     other_refund: &[u8]
   ) -> Vec<u8> {
-    let b = Secp256k1Engine::public_key_to_bytes(&Secp256k1Engine::to_public_key(&self.b));
-    let br = Secp256k1Engine::public_key_to_bytes(&Secp256k1Engine::to_public_key(&self.br));
+    let b = g!(self.b * G).mark::<Normal>().to_bytes();
+    let br = g!(self.br * G).mark::<Normal>().to_bytes();
     let mut bs = vec![other, &b, other_refund, &br];
     if !is_host {
       bs.swap(0, 1);
@@ -184,7 +184,7 @@ impl BtcEngine {
     fee_per_byte: u64
   ) -> anyhow::Result<(Script, Transaction, secp256k1::Message, Vec<u8>)> {
     #[allow(non_snake_case)]
-    let BR = Secp256k1Engine::public_key_to_bytes(&Secp256k1Engine::to_public_key(&self.br));
+    let BR = g!(self.br * G).mark::<Normal>().to_bytes();
     let mut refund_keys: Vec<&[u8]> = vec![&BR, other_refund];
     if is_host {
       refund_keys.swap(0, 1);
@@ -231,12 +231,13 @@ impl BtcEngine {
     refund.output[0].value = refund.output[0].value.checked_sub(fee)
       .ok_or_else(|| anyhow::anyhow!("Not enough Bitcoin to pay for {} sats of fees", fee))?;
 
-    let components = SighashComponents::new(&refund);
+    let mut components = SigHashCache::new(&refund);
     let message = secp256k1::Message::from_slice(
-      &components.sighash_all(
-        &refund.input[0],
+      &components.signature_hash(
+        0,
         self.lock_script(),
-        value
+        value,
+        SigHashType::All
       )
     )?;
 
@@ -247,11 +248,7 @@ impl BtcEngine {
         message,
         SECP.sign(
           &message,
-          &secp256k1::SecretKey::from_slice(
-            &Secp256k1Engine::private_key_to_bytes(
-              &self.br
-            )
-          ).expect("Secp256k1Engine generated invalid SECP Private Key")
+          &secp256k1::SecretKey::from_slice(&self.br.to_bytes()).expect("secp256kfun generated invalid SECP Private Key")
         ).serialize_der().to_vec()
       )
     )

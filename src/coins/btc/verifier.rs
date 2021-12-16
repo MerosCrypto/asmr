@@ -10,17 +10,19 @@ use async_trait::async_trait;
 
 use sha2::Digest;
 
+use secp256kfun::{marker::*, Scalar, Point, G, g};
+use dleq::{DLEqProof, engines::{DLEqEngine, secp256kfun::Secp256k1Engine}};
+
 use bitcoin::{
   secp256k1,
   hash_types::Txid,
-  blockdata::{script::Script, transaction::{OutPoint, TxIn, TxOut, Transaction}},
-  util::{address::Address, bip143::SighashComponents},
+  blockdata::{script::Script, transaction::{OutPoint, TxIn, TxOut, Transaction, SigHashType}},
+  util::{address::Address, bip143::SigHashCache},
   consensus::{serialize, deserialize}
 };
 
 use crate::{
-  crypt_engines::{KeyBundle, CryptEngine, secp256k1_engine::Secp256k1Engine},
-  dl_eq::DlEqProof,
+  crypto::{KeyBundle, secp256k1::*},
   coins::{
     ScriptedVerifier,
     btc::{engine::*, rpc::BtcRpc}
@@ -39,9 +41,9 @@ pub struct BtcVerifier {
 
   swap_hash: Option<Vec<u8>>,
 
-  decryption_key: Option<<Secp256k1Engine as CryptEngine>::PrivateKey>,
-  encryption_key: Option<<Secp256k1Engine as CryptEngine>::PublicKey>,
-  encrypted_spend_sig: Option<<Secp256k1Engine as CryptEngine>::EncryptedSignature>,
+  decryption_key: Option<Scalar>,
+  encryption_key: Option<Point>,
+  encrypted_spend_sig: Option<EncryptedSignature>,
 
   lock_id: Option<Txid>,
   lock_value: Option<u64>,
@@ -95,15 +97,13 @@ impl BtcVerifier {
         &refund_spend.input[0].witness[1][0 .. refund_spend.input[0].witness[1].len() - 1]
       ).expect("Published BTC transaction has an invalid signature").serialize_compact().to_vec();
 
-      Some(
-        Secp256k1Engine::private_key_to_little_endian_bytes(
-          &Secp256k1Engine::recover_key(
-            self.encryption_key.as_ref().expect("Recovering key despite not having stored the encryption key"),
-            self.encrypted_spend_sig.as_ref().expect("Recovering key despite not having encrypted a signature"),
-            &Secp256k1Engine::bytes_to_signature(&decrypted).expect("Published BTC transaction has an invalid signature")
-          ).expect("Couldn't recover the private key")
-        )
-      )
+      let mut recovered = recover_key(
+        self.encryption_key.as_ref().expect("Recovering key despite not having stored the encryption key"),
+        self.encrypted_spend_sig.as_ref().expect("Recovering key despite not having encrypted a signature"),
+        &Signature::deserialize(&decrypted).expect("Published BTC transaction has an invalid signature")
+      ).expect("Couldn't recover the private key").to_bytes();
+      recovered.reverse();
+      Some(recovered)
     } else {
       None
     }
@@ -116,15 +116,15 @@ impl ScriptedVerifier for BtcVerifier {
     self.destination_script.to_bytes()
   }
 
-  fn generate_keys_for_engine<OtherCrypt: CryptEngine>(&mut self, _: PhantomData<&OtherCrypt>) -> (Vec<u8>, OtherCrypt::PrivateKey) {
-    let (proof, key1, key2) = DlEqProof::<Secp256k1Engine, OtherCrypt>::new();
+  fn generate_keys_for_engine<OtherCrypt: DLEqEngine>(&mut self, _: PhantomData<&OtherCrypt>) -> (Vec<u8>, OtherCrypt::PrivateKey) {
+    let (proof, key1, key2) = DLEqProof::<Secp256k1Engine, OtherCrypt>::new(&mut rand::rngs::OsRng);
     self.decryption_key = Some(key1);
-    (proof.serialize(), key2)
+    (proof.serialize().expect("Couldn't serialize DLEq proof"), key2)
   }
 
-  fn verify_keys_for_engine<OtherCrypt: CryptEngine>(&mut self, keys: &[u8], _: PhantomData<&OtherCrypt>) -> anyhow::Result<OtherCrypt::PublicKey> {
+  fn verify_keys_for_engine<OtherCrypt: DLEqEngine>(&mut self, keys: &[u8], _: PhantomData<&OtherCrypt>) -> anyhow::Result<OtherCrypt::PublicKey> {
     let bundle = KeyBundle::deserialize(keys)?;
-    let dleq = DlEqProof::<OtherCrypt, Secp256k1Engine>::deserialize(&bundle.dl_eq)?;
+    let dleq = DLEqProof::<OtherCrypt, Secp256k1Engine>::deserialize(&bundle.dleq)?;
     let (key1, key2) = dleq.verify()?;
     self.host = Some(bundle.B);
     self.host_refund = Some(bundle.BR);
@@ -134,11 +134,11 @@ impl ScriptedVerifier for BtcVerifier {
   }
 
   fn B(&self) -> Vec<u8> {
-    Secp256k1Engine::public_key_to_bytes(&Secp256k1Engine::to_public_key(&self.engine.b))
+    g!(self.engine.b * G).mark::<Normal>().to_bytes().to_vec()
   }
 
   fn BR(&self) -> Vec<u8> {
-    Secp256k1Engine::public_key_to_bytes(&Secp256k1Engine::to_public_key(&self.engine.br))
+    g!(self.engine.br * G).mark::<Normal>().to_bytes().to_vec()
   }
 
   async fn complete_refund_and_prepare_spend(
@@ -187,18 +187,19 @@ impl ScriptedVerifier for BtcVerifier {
       refund.output[0].value,
       lock_and_refund.fee_per_byte
     )?;
-    let components = SighashComponents::new(&spend);
+    let mut components = SigHashCache::new(&spend);
 
-    let encrypted_spend_sig_typed = Secp256k1Engine::encrypted_sign(
+    let encrypted_spend_sig_typed = encrypted_sign(
       &self.engine.br,
       self.encryption_key.as_ref().expect("Attempted to generate encrypted sign before verifying dleq proof"),
-      &components.sighash_all(
-        &spend.input[0],
+      &components.signature_hash(
+        0,
         &Script::from(self.engine.refund_script_bytes.clone().expect("Preparing spend before knowing refund script")),
-        refund.output[0].value
+        refund.output[0].value,
+        SigHashType::All
       )
     )?;
-    let encrypted_spend_sig = Secp256k1Engine::encrypted_signature_to_bytes(&encrypted_spend_sig_typed);
+    let encrypted_spend_sig = encrypted_spend_sig_typed.serialize();
     self.encrypted_spend_sig = Some(encrypted_spend_sig_typed);
 
     refund.input[0].witness = vec![
@@ -255,22 +256,21 @@ impl ScriptedVerifier for BtcVerifier {
       ]
     };
 
-    let components = SighashComponents::new(&buy);
+    let mut components = SigHashCache::new(&buy);
     let buy_message = secp256k1::Message::from_slice(
-      &components.sighash_all(
-        &buy.input[0],
+      &components.signature_hash(
+        0,
         self.engine.lock_script(),
-        self.lock_value.expect("Finishing our buy before knowing the lock's value")
+        self.lock_value.expect("Finishing our buy before knowing the lock's value"),
+        SigHashType::All
       )
     )?;
 
     let decrypted_signature = secp256k1::Signature::from_compact(
-      &Secp256k1Engine::signature_to_bytes(
-        &Secp256k1Engine::decrypt_signature(
-          &Secp256k1Engine::bytes_to_encrypted_signature(&buy_info.encrypted_signature)?,
-          self.decryption_key.as_ref().expect("Attempted to finish verifier before generate_keys called")
-        )?
-      )
+      &decrypt_signature(
+        &EncryptedSignature::deserialize(&buy_info.encrypted_signature)?,
+        self.decryption_key.as_ref().expect("Attempted to finish verifier before generate_keys called")
+      )?.serialize()
     )?;
     SECP.verify(
       &buy_message,
@@ -280,9 +280,7 @@ impl ScriptedVerifier for BtcVerifier {
 
     let signature = SECP.sign(
       &buy_message,
-      &secp256k1::SecretKey::from_slice(
-        &Secp256k1Engine::private_key_to_bytes(&self.engine.b)
-      ).expect("Secp256k1Engine generated an invalid secp256k1 key")
+      &secp256k1::SecretKey::from_slice(&self.engine.b.to_bytes()).expect("secp256kfun generated an invalid secp256k1 key")
     ).serialize_der();
 
     buy.input[0].witness = vec![
@@ -308,7 +306,7 @@ impl ScriptedVerifier for BtcVerifier {
     let mut history = self.rpc.get_address_history(&lock_address).await;
     while history.len() == 0 {
       history = self.rpc.get_address_history(&lock_address).await;
-      tokio::time::delay_for(std::time::Duration::from_secs(20)).await;
+      tokio::time::sleep(std::time::Duration::from_secs(20)).await;
     }
     if history.len() != 1 {
       anyhow::bail!("Lock and refund exist");
@@ -334,7 +332,7 @@ impl ScriptedVerifier for BtcVerifier {
     } else {
       let mut confirmations = -1;
       while confirmations < CONFIRMATIONS {
-        tokio::time::delay_for(std::time::Duration::from_secs(20)).await;
+        tokio::time::sleep(std::time::Duration::from_secs(20)).await;
 
         history = self.rpc.get_address_history(&lock_address).await;
         // Verify the refund still hasn't been broadcasted in this time period
@@ -353,7 +351,7 @@ impl ScriptedVerifier for BtcVerifier {
   async fn claim_refund_or_recover_key(mut self) -> anyhow::Result<Option<[u8; 32]>> {
     let lock_height = self.lock_height.expect("Trying to publish refund despite no lock on chain");
     while self.rpc.get_height().await < (lock_height + (T0 as isize)) {
-      tokio::time::delay_for(std::time::Duration::from_secs(20)).await;
+      tokio::time::sleep(std::time::Duration::from_secs(20)).await;
     }
 
     let refund = self.refund.as_ref().expect("Trying to get the refund despite not having a refund transaction");
@@ -374,7 +372,7 @@ impl ScriptedVerifier for BtcVerifier {
       if (history.len() > 0) && ((history[0].confirmations) >= CONFIRMATIONS) {
         break;
       }
-      tokio::time::delay_for(std::time::Duration::from_secs(20)).await;
+      tokio::time::sleep(std::time::Duration::from_secs(20)).await;
     }
     let refund_height = self.rpc.get_height().await;
 
@@ -419,18 +417,17 @@ impl ScriptedVerifier for BtcVerifier {
     claim.output[0].value = claim.output[0].value.checked_sub(fee)
       .ok_or_else(|| anyhow::anyhow!("Not enough Bitcoin to pay for {} sats of fees", fee))?;
 
-    let components = SighashComponents::new(&claim);
+    let mut components = SigHashCache::new(&claim);
     claim.input[0].witness[0] = SECP.sign(
       &secp256k1::Message::from_slice(
-        &components.sighash_all(
-          &claim.input[0],
+        &components.signature_hash(
+          0,
           &refund_script,
-          refund.output[0].value
+          refund.output[0].value,
+          SigHashType::All
         )
       )?,
-      &secp256k1::SecretKey::from_slice(
-        &Secp256k1Engine::private_key_to_bytes(&self.engine.b)
-      ).expect("Secp256k1Engine generated an invalid secp256k1 key")
+      &secp256k1::SecretKey::from_slice(&self.engine.b.to_bytes()).expect("secp256kfun generated an invalid secp256k1 key")
     ).serialize_der().to_vec();
     claim.input[0].witness[0].push(1);
 

@@ -7,7 +7,7 @@ use std::{
 use async_trait::async_trait;
 
 use crate::{
-  crypt_engines::{KeyBundle, CryptEngine, ed25519_engine::Ed25519Sha},
+  crypto::{KeyBundle, CryptEngine, ed25519_engine::Ed25519Sha},
   coins::{
     UnscriptedClient, ScriptedVerifier,
     meros::{
@@ -44,10 +44,10 @@ impl MerosClient {
 #[async_trait]
 impl UnscriptedClient for MerosClient {
   fn generate_keys<Verifier: ScriptedVerifier>(&mut self, verifier: &mut Verifier) -> Vec<u8> {
-    let (dl_eq, key) = verifier.generate_keys_for_engine::<Ed25519Sha>(PhantomData);
+    let (dleq, key) = verifier.generate_keys_for_engine::<Ed25519Sha>(PhantomData);
     self.key_share = Some(key);
     KeyBundle {
-      dl_eq,
+      dleq,
       B: verifier.B(),
       BR: verifier.BR(),
       scripted_destination: verifier.destination_script()
@@ -75,7 +75,7 @@ impl UnscriptedClient for MerosClient {
     let address = self.address.clone().expect("Waiting for deposit despite not knowing the deposit address");
     let mut utxos = self.rpc.get_utxos(address.clone()).await;
     while utxos.len() == 0 {
-      tokio::time::delay_for(std::time::Duration::from_secs(5)).await;
+      tokio::time::sleep(std::time::Duration::from_secs(5)).await;
       utxos = self.rpc.get_utxos(address.clone()).await;
     }
     self.deposited = true;

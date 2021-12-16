@@ -1,5 +1,12 @@
+use rand::OsRng;
+
+use ff::Field;
+use jubjub::{Fr, SubgroupPoint};
+
+use zcash_primitives::constants::{SPENDING_KEY_GENERATOR, PROOF_GENERATION_KEY_GENERATOR};
+
 use crate::{
-  crypt_engines::{CryptEngine, jubjub_engine::JubjubEngine},
+  crypto::sapling::SaplingEngine,
   coins::zec::engine::{ZecConfig, ZecEngine}
 };
 
@@ -11,11 +18,11 @@ async fn receive_funds() -> anyhow::Result<()> {
     refund: "".to_string()
   }).await?;
 
-  let other_ask = JubjubEngine::new_private_key();
-  let other_nsk = JubjubEngine::new_private_key();
+  let other_ask = Fr::random(&mut OsRng);
+  let other_nsk = Fr::random(&mut OsRng);
 
-  engine.ask = Some(JubjubEngine::new_private_key());
-  engine.set_ak_nsk(&JubjubEngine::to_public_key(&other_ask), &other_nsk);
+  engine.ask = Some(Fr::random(&mut OsRng));
+  engine.set_ak_nsk(&(SPENDING_KEY_GENERATOR * &other_ask), &other_nsk);
   let vk = engine.vk.clone().expect("ViewingKey wasn't created despite setting the other ak/nsk");
   assert!(engine.get_deposit(&vk, false).await?.is_none());
   engine.send_from_wallet().await?;
@@ -32,11 +39,11 @@ async fn send_funds() -> anyhow::Result<()> {
     refund: "".to_string()
   }).await?;
 
-  let other_ask = JubjubEngine::new_private_key();
-  let other_nsk = JubjubEngine::new_private_key();
+  let other_ask = Fr::random(&mut OsRng);
+  let other_nsk = Fr::random(&mut OsRng);
 
-  engine.ask = Some(JubjubEngine::new_private_key());
-  engine.set_ak_nsk(&JubjubEngine::to_public_key(&other_ask), &other_nsk);
+  engine.ask = Some(Fr::random(&mut OsRng));
+  engine.set_ak_nsk(&(SPENDING_KEY_GENERATOR * &other_ask), &other_nsk);
   let vk = engine.vk.clone().expect("ViewingKey wasn't created despite setting the other ak/nsk");
   engine.send_from_wallet().await?;
   let value = engine.get_deposit(&vk, false).await?;
@@ -48,10 +55,10 @@ async fn send_funds() -> anyhow::Result<()> {
     destination: "".to_string(),
     refund: "".to_string()
   }).await?;
-  recipient.ask = Some(JubjubEngine::new_private_key());
+  recipient.ask = Some(Fr::random(&mut OsRng));
   recipient.set_ak_nsk(
-    &JubjubEngine::to_public_key(&JubjubEngine::new_private_key()),
-    &JubjubEngine::new_private_key()
+    &(SPENDING_KEY_GENERATOR * &Fr::random(&mut OsRng)),
+    &Fr::random(&mut OsRng)
   );
 
   // Address to send to

@@ -1,5 +1,5 @@
 pub mod btc;
-pub mod meros;
+//pub mod meros;
 pub mod nano;
 pub mod xmr;
 pub mod zec;
@@ -9,12 +9,12 @@ use std::marker::PhantomData;
 use async_trait::async_trait;
 use enum_dispatch::enum_dispatch;
 
-use crate::crypt_engines::CryptEngine;
+use dleq::engines::DLEqEngine;
 
 #[async_trait]
 #[enum_dispatch(AnyScriptedHost)]
 #[allow(non_snake_case)]
-pub trait ScriptedHost: Send + Sync {
+pub trait ScriptedHost: Send + Sync + Sized {
   fn generate_keys<Verifier: UnscriptedVerifier>(&mut self, verifier: &mut Verifier) -> Vec<u8>;
   fn verify_keys<Verifier: UnscriptedVerifier>(&mut self, keys: &[u8], verifier: &mut Verifier) -> anyhow::Result<()>;
 
@@ -45,12 +45,12 @@ pub trait ScriptedHost: Send + Sync {
 
 #[enum_dispatch]
 pub enum AnyScriptedHost {
-  Btc(btc::host::BtcHost),
+  Btc(btc::host::BtcHost)
 }
 
 #[async_trait]
 #[enum_dispatch(AnyUnscriptedClient)]
-pub trait UnscriptedClient {
+pub trait UnscriptedClient: Send + Sync + Sized {
   fn generate_keys<Verifier: ScriptedVerifier>(&mut self, verifier: &mut Verifier) -> Vec<u8>;
   fn verify_keys<Verifier: ScriptedVerifier>(&mut self, keys: &[u8], verifier: &mut Verifier) -> anyhow::Result<()>;
 
@@ -72,7 +72,7 @@ pub trait UnscriptedClient {
 
 #[enum_dispatch]
 pub enum AnyUnscriptedClient {
-  Meros(meros::client::MerosClient),
+  //Meros(meros::client::MerosClient),
   Nano(nano::client::NanoClient),
   Monero(xmr::client::XmrClient),
   ZCashShielded(zec::client::ZecShieldedClient)
@@ -81,12 +81,12 @@ pub enum AnyUnscriptedClient {
 #[async_trait]
 #[enum_dispatch(AnyScriptedVerifier)]
 #[allow(non_snake_case)]
-pub trait ScriptedVerifier: Send + Sync {
+pub trait ScriptedVerifier: Send + Sync + Sized {
   fn destination_script(&self) -> Vec<u8>;
 
   // These `PhantomData`s are needed because enum_dispatch doesn't specify method type parameters (probably a bug)
-  fn generate_keys_for_engine<OtherCrypt: CryptEngine>(&mut self, phantom: PhantomData<&OtherCrypt>) -> (Vec<u8>, OtherCrypt::PrivateKey);
-  fn verify_keys_for_engine<OtherCrypt: CryptEngine>(&mut self, dleq: &[u8], phantom: PhantomData<&OtherCrypt>) -> anyhow::Result<OtherCrypt::PublicKey>;
+  fn generate_keys_for_engine<OtherCrypt: DLEqEngine>(&mut self, phantom: PhantomData<&OtherCrypt>) -> (Vec<u8>, OtherCrypt::PrivateKey);
+  fn verify_keys_for_engine<OtherCrypt: DLEqEngine>(&mut self, dleq: &[u8], phantom: PhantomData<&OtherCrypt>) -> anyhow::Result<OtherCrypt::PublicKey>;
 
   fn B(&self) -> Vec<u8>;
   fn BR(&self) -> Vec<u8>;
@@ -109,15 +109,15 @@ pub trait ScriptedVerifier: Send + Sync {
 
 #[enum_dispatch]
 pub enum AnyScriptedVerifier {
-  Btc(btc::verifier::BtcVerifier),
+  Btc(btc::verifier::BtcVerifier)
 }
 
 #[async_trait]
 #[enum_dispatch(AnyUnscriptedVerifier)]
-pub trait UnscriptedVerifier: Send + Sync {
+pub trait UnscriptedVerifier: Send + Sync + Sized {
   // These `PhantomData`s are needed because enum_dispatch doesn't specify method type parameters (probably a bug)
-  fn generate_keys_for_engine<OtherCrypt: CryptEngine>(&mut self, phantom: PhantomData<&OtherCrypt>) -> (Vec<u8>, OtherCrypt::PrivateKey);
-  fn verify_dleq_for_engine<OtherCrypt: CryptEngine>(&mut self, dleq: &[u8], phantom: PhantomData<&OtherCrypt>) -> anyhow::Result<OtherCrypt::PublicKey>;
+  fn generate_keys_for_engine<OtherCrypt: DLEqEngine>(&mut self, phantom: PhantomData<&OtherCrypt>) -> (Vec<u8>, OtherCrypt::PrivateKey);
+  fn verify_dleq_for_engine<OtherCrypt: DLEqEngine>(&mut self, dleq: &[u8], phantom: PhantomData<&OtherCrypt>) -> anyhow::Result<OtherCrypt::PublicKey>;
 
   async fn verify_and_wait_for_send(&mut self) -> anyhow::Result<()>;
   async fn finish<Host: ScriptedHost>(&mut self, host: &Host) -> anyhow::Result<()>;
@@ -125,7 +125,7 @@ pub trait UnscriptedVerifier: Send + Sync {
 
 #[enum_dispatch]
 pub enum AnyUnscriptedVerifier {
-  Meros(meros::verifier::MerosVerifier),
+  //Meros(meros::verifier::MerosVerifier),
   Nano(nano::verifier::NanoVerifier),
   Monero(xmr::verifier::XmrVerifier),
   ZCashShielded(zec::verifier::ZecShieldedVerifier)

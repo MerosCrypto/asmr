@@ -7,9 +7,12 @@ use std::{
 
 use async_trait::async_trait;
 
+use jubjub::Fr;
+
+use dleq::{DLEqProof, engines::DLEqEngine};
+
 use crate::{
-  crypt_engines::{CryptEngine, jubjub_engine::JubjubEngine},
-  dl_eq::DlEqProof,
+  crypto::sapling::SaplingEngine,
   coins::{
     UnscriptedVerifier, ScriptedHost,
     zec::engine::*
@@ -26,28 +29,29 @@ impl ZecShieldedVerifier {
 
 #[async_trait]
 impl UnscriptedVerifier for ZecShieldedVerifier {
-  fn generate_keys_for_engine<OtherCrypt: CryptEngine>(&mut self, _: PhantomData<&OtherCrypt>) -> (Vec<u8>, OtherCrypt::PrivateKey) {
-    let (proof, key1, key2) = DlEqProof::<JubjubEngine, OtherCrypt>::new();
+  fn generate_keys_for_engine<OtherCrypt: DLEqEngine>(&mut self, _: PhantomData<&OtherCrypt>) -> (Vec<u8>, OtherCrypt::PrivateKey) {
+    let (proof, key1, key2) = DLEqProof::<SaplingEngine, OtherCrypt>::new(&mut rand::rngs::OsRng);
     self.0.ask = Some(key1);
     (
       bincode::serialize(
         &ZecKeys {
-          dl_eq: proof.serialize(),
-          nsk: JubjubEngine::private_key_to_bytes(&self.0.nsk)
+          dleq: proof.serialize().expect("Couldn't serialize a DLEq proof"),
+          nsk: self.0.nsk.to_bytes()
         }
       ).unwrap(),
       key2
     )
   }
 
-  fn verify_dleq_for_engine<OtherCrypt: CryptEngine>(&mut self, dleq: &[u8], _: PhantomData<&OtherCrypt>) -> anyhow::Result<OtherCrypt::PublicKey> {
+  fn verify_dleq_for_engine<OtherCrypt: DLEqEngine>(&mut self, dleq: &[u8], _: PhantomData<&OtherCrypt>) -> anyhow::Result<OtherCrypt::PublicKey> {
     let keys: ZecKeys = bincode::deserialize(dleq)?;
-    let dleq = DlEqProof::<OtherCrypt, JubjubEngine>::deserialize(&keys.dl_eq)?;
+    let dleq = DLEqProof::<OtherCrypt, SaplingEngine>::deserialize(&keys.dleq)?;
     let (key1, key2) = dleq.verify()?;
-    self.0.set_ak_nsk(
-      &key2,
-      &JubjubEngine::bytes_to_private_key(keys.nsk)?
-    );
+    let nsk = Fr::from_bytes(&keys.nsk);
+    if !bool::from(nsk.is_some()) {
+      anyhow::bail!("Invalid nsk provided by counterparty");
+    }
+    self.0.set_ak_nsk(key2, nsk.unwrap());
     Ok(key1)
   }
 
@@ -69,9 +73,10 @@ impl UnscriptedVerifier for ZecShieldedVerifier {
   }
 
   async fn finish<Host: ScriptedHost>(&mut self, host: &Host) -> anyhow::Result<()> {
-    self.0.claim(
-      JubjubEngine::little_endian_bytes_to_private_key(host.recover_final_key().await?)?,
-      &self.0.config.destination
-    ).await
+    let recovered_key = Fr::from_bytes(&host.recover_final_key().await?);
+    if !bool::from(recovered_key.is_some()) {
+      anyhow::bail!("Recovered invalid key");
+    }
+    self.0.claim(recovered_key.unwrap(), &self.0.config.destination).await
   }
 }

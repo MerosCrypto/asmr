@@ -10,18 +10,21 @@ use hex_literal::hex;
 use rand::{rngs::OsRng, RngCore};
 use digest::Digest;
 
+use secp256kfun::{marker::*, Scalar, Point, G, g};
+use dleq::engines::secp256kfun::Secp256k1Engine;
+
 use serde::Deserialize;
 
 use bitcoin::{
   secp256k1,
   hashes::hex::FromHex, hash_types::Txid,
-  blockdata::{script::Script, transaction::{OutPoint, TxIn, TxOut, Transaction}},
-  util::{address::Address, bip143::SighashComponents},
+  blockdata::{script::Script, transaction::{OutPoint, TxIn, TxOut, Transaction, SigHashType}},
+  util::{address::Address, bip143::SigHashCache},
   consensus::serialize
 };
 
 use crate::{
-  crypt_engines::{KeyBundle, CryptEngine, secp256k1_engine::Secp256k1Engine},
+  crypto::{KeyBundle, secp256k1::*},
   coins::{
     ScriptedHost, UnscriptedVerifier,
     btc::{engine::*, rpc::*}
@@ -34,7 +37,7 @@ pub struct BtcHost {
   #[cfg(test)]
   refund_pubkey: Option<bitcoin::util::key::PublicKey>,
   refund_pubkey_script: Script,
-  address: Option<(<Secp256k1Engine as CryptEngine>::PrivateKey, String, [u8; 20])>,
+  address: Option<(Scalar, String, [u8; 20])>,
 
   swap_secret: [u8; 32],
   swap_hash: Vec<u8>,
@@ -48,14 +51,14 @@ pub struct BtcHost {
   refund_message: Option<secp256k1::Message>,
   refund_signature: Option<Vec<u8>>,
   spend_message: Option<Vec<u8>>,
-  encrypted_spend_signature: Option<<Secp256k1Engine as CryptEngine>::EncryptedSignature>,
+  encrypted_spend_signature: Option<EncryptedSignature>,
 
   client: Option<Vec<u8>>,
   client_refund: Option<Vec<u8>>,
   client_destination_script: Option<Script>,
 
-  encryption_key: Option<<Secp256k1Engine as CryptEngine>::PublicKey>,
-  encrypted_signature: Option<<Secp256k1Engine as CryptEngine>::EncryptedSignature>,
+  encryption_key: Option<Point>,
+  encrypted_signature: Option<EncryptedSignature>,
   buy: Option<Txid>
 }
 
@@ -114,12 +117,13 @@ impl BtcHost {
       refund.output[0].value,
       fee_per_byte
     )?;
-    let components = SighashComponents::new(&spend);
+    let mut components = SigHashCache::new(&spend);
     self.spend_message = Some(
-      components.sighash_all(
-        &spend.input[0],
+      components.signature_hash(
+        0,
         &Script::from(self.engine.refund_script_bytes.clone().expect("Creating spend before refund script")),
-        refund.output[0].value
+        refund.output[0].value,
+        SigHashType::All
       ).to_vec()
     );
 
@@ -136,19 +140,19 @@ impl BtcHost {
 #[async_trait]
 impl ScriptedHost for BtcHost {
   fn generate_keys<Verifier: UnscriptedVerifier>(&mut self, verifier: &mut Verifier) -> Vec<u8> {
-    let (dl_eq, key) = verifier.generate_keys_for_engine::<Secp256k1Engine>(PhantomData);
+    let (dleq, key) = verifier.generate_keys_for_engine::<Secp256k1Engine>(PhantomData);
     self.engine.bs = Some(key);
     KeyBundle {
-      dl_eq,
-      B: Secp256k1Engine::public_key_to_bytes(&Secp256k1Engine::to_public_key(&self.engine.b)),
-      BR: Secp256k1Engine::public_key_to_bytes(&Secp256k1Engine::to_public_key(&self.engine.br)),
+      dleq,
+      B: g!(self.engine.b * G).mark::<Normal>().to_bytes().to_vec(),
+      BR: g!(self.engine.br * G).mark::<Normal>().to_bytes().to_vec(),
       scripted_destination: self.refund_pubkey_script.to_bytes()
     }.serialize()
   }
 
   fn verify_keys<Verifier: UnscriptedVerifier>(&mut self, keys: &[u8], verifier: &mut Verifier) -> anyhow::Result<()> {
     let keys = KeyBundle::deserialize(keys)?;
-    let key = verifier.verify_dleq_for_engine::<Secp256k1Engine>(&keys.dl_eq, PhantomData)?;
+    let key = verifier.verify_dleq_for_engine::<Secp256k1Engine>(&keys.dleq, PhantomData)?;
     if (keys.B.len() != 33) || (keys.BR.len() != 33) {
       anyhow::bail!("Keys have an invalid length");
     }
@@ -186,7 +190,7 @@ impl ScriptedHost for BtcHost {
     let address = self.address.clone().expect("Creating lock before creating address");
     let mut inputs_to_use = self.rpc.get_spendable(&address.1).await?;
     while inputs_to_use.len() == 0 {
-      tokio::time::delay_for(std::time::Duration::from_secs(10)).await;
+      tokio::time::sleep(std::time::Duration::from_secs(10)).await;
       inputs_to_use = self.rpc.get_spendable(&address.1).await?;
     }
 
@@ -219,28 +223,28 @@ impl ScriptedHost for BtcHost {
       .ok_or_else(|| anyhow::anyhow!("Not enough Bitcoin to pay for {} sats of fees", fee))?;
 
     let private_key = secp256k1::SecretKey::from_slice(
-      &Secp256k1Engine::private_key_to_bytes(&address.0)
-    ).expect("Secp256k1Engine generated an invalid secp256k1 key, yet we already used it earlier");
+      &address.0.to_bytes()
+    ).expect("secp256kfun generated an invalid secp256k1 key, yet we already used it earlier");
 
-    let key_bytes = Secp256k1Engine::public_key_to_bytes(
-      &Secp256k1Engine::to_public_key(&address.0)
-    );
+    let address0 = address.0;
+    let key_bytes = g!(address0 * G).mark::<Normal>().to_bytes();
 
     let mut segwit_script_code = hex!("76a914").to_vec();
     segwit_script_code.extend(&address.2);
     segwit_script_code.extend(hex!("88ac").to_vec());
     let segwit_script_code = Script::from(segwit_script_code);
 
-    let components = SighashComponents::new(&lock);
+    let cloned_lock = lock.clone();
+    let mut components = SigHashCache::new(&cloned_lock);
     for i in 0 .. lock.input.len() {
       let signature = SECP.sign(
-        &secp256k1::Message::from_slice(&components.sighash_all(&lock.input[i], &segwit_script_code, value))?,
+        &secp256k1::Message::from_slice(&components.signature_hash(i, &segwit_script_code, value, SigHashType::All))?,
         &private_key
       ).serialize_der();
 
       let mut signature = signature.to_vec();
       signature.push(1);
-      lock.input[i].witness = vec![signature, key_bytes.clone()];
+      lock.input[i].witness = vec![signature, key_bytes.to_vec()];
     }
 
     let fee_per_byte_and_sig = self.prepare_refund_and_spend(lock.txid(), lock.output[0].value).await?;
@@ -263,7 +267,7 @@ impl ScriptedHost for BtcHost {
   fn verify_refund_and_spend(&mut self, refund_and_spend_sigs: &[u8]) -> anyhow::Result<()> {
     let sigs: ClientRefundAndSpendSignatures = bincode::deserialize(refund_and_spend_sigs)?;
     let refund_signature = sigs.refund_signature;
-    let encrypted_spend_signature = Secp256k1Engine::bytes_to_encrypted_signature(&sigs.encrypted_spend_signature)?;
+    let encrypted_spend_signature = EncryptedSignature::deserialize(&sigs.encrypted_spend_signature)?;
 
     SECP.verify(
       self.refund_message.as_ref().expect("Couldn't grab the refund's message despite attempting to verify the refund"),
@@ -271,9 +275,10 @@ impl ScriptedHost for BtcHost {
       &secp256k1::PublicKey::from_slice(self.client_refund.as_ref().expect("Couldn't grab the client's refund public key despite attempting to verify the refund"))?
     )?;
 
-    Secp256k1Engine::encrypted_verify(
-      &Secp256k1Engine::bytes_to_public_key(self.client_refund.as_ref().expect("Trying to verify the spend signature before exchanging keys"))?,
-      &Secp256k1Engine::to_public_key(self.engine.bs.as_ref().expect("Verifying spend before generating keys")),
+    let bs = self.engine.bs.as_ref().expect("Verifying spend before generating keys");
+    encrypted_verify(
+      &bincode::deserialize(self.client_refund.as_ref().expect("Trying to verify the spend signature before exchanging keys"))?,
+      &g!(bs * G).mark::<Normal>(),
       &encrypted_spend_signature,
       self.spend_message.as_ref().expect("Trying to verify the spend before knowing its message")
     )?;
@@ -308,7 +313,7 @@ impl ScriptedHost for BtcHost {
       #[cfg(test)]
       self.rpc.mine_block().await?;
 
-      tokio::time::delay_for(std::time::Duration::from_secs(20)).await;
+      tokio::time::sleep(std::time::Duration::from_secs(20)).await;
       history = self.rpc.get_address_history(&address).await;
     }
     self.lock_height = Some(self.rpc.get_height().await);
@@ -374,28 +379,28 @@ impl ScriptedHost for BtcHost {
             .ok_or_else(|| anyhow::anyhow!("Not enough Bitcoin to pay for {} sats of fees", fee))?;
 
           let private_key = secp256k1::SecretKey::from_slice(
-            &Secp256k1Engine::private_key_to_bytes(&address.0)
-          ).expect("Secp256k1Engine generated an invalid secp256k1 key");
+            &address.0.to_bytes()
+          ).expect("secp256kfun generated an invalid secp256k1 key");
 
-          let key_bytes = Secp256k1Engine::public_key_to_bytes(
-            &Secp256k1Engine::to_public_key(&address.0)
-          );
+          let address0 = address.0;
+          let key_bytes = g!(address0 * G).mark::<Normal>().to_bytes();
 
           let mut segwit_script_code = hex!("76a914").to_vec();
           segwit_script_code.extend(&address.2);
           segwit_script_code.extend(hex!("88ac").to_vec());
           let segwit_script_code = Script::from(segwit_script_code);
 
-          let components = SighashComponents::new(&return_tx);
+          let cloned_return = return_tx.clone();
+          let mut components = SigHashCache::new(&cloned_return);
           for i in 0 .. return_tx.input.len() {
             let signature = SECP.sign(
-              &secp256k1::Message::from_slice(&components.sighash_all(&return_tx.input[i], &segwit_script_code, value))?,
+              &secp256k1::Message::from_slice(&components.signature_hash(i, &segwit_script_code, value, SigHashType::All))?,
               &private_key
             ).serialize_der();
 
             let mut signature = signature.to_vec();
             signature.push(1);
-            return_tx.input[i].witness = vec![signature, key_bytes.clone()];
+            return_tx.input[i].witness = vec![signature, key_bytes.to_vec()];
           }
 
           self.rpc.publish(&serialize(&return_tx)).await?;
@@ -410,7 +415,7 @@ impl ScriptedHost for BtcHost {
           for _ in 0 .. T0 {
             self.rpc.mine_block().await?;
           }
-          tokio::time::delay_for(std::time::Duration::from_secs(20)).await;
+          tokio::time::sleep(std::time::Duration::from_secs(20)).await;
         }
 
         let refund = self.refund.clone().expect("Refund transaction doesn't exist despite having published the lock");
@@ -443,7 +448,7 @@ impl ScriptedHost for BtcHost {
             return verifier.finish(&mut self).await;
           }
 
-          tokio::time::delay_for(std::time::Duration::from_secs(20)).await;
+          tokio::time::sleep(std::time::Duration::from_secs(20)).await;
         }
 
         // Complete and publish the spend transaction.
@@ -451,18 +456,16 @@ impl ScriptedHost for BtcHost {
         spend.input[0].witness = vec![
           Vec::new(),
           secp256k1::Signature::from_compact(
-            &Secp256k1Engine::signature_to_bytes(
-              &Secp256k1Engine::decrypt_signature(
-                &self.encrypted_spend_signature.expect("Spend signature doesn't exist despite having published the lock"),
-                &self.engine.bs.expect("Never generated keys despite having published the lock")
-              )?
-            )
+            &decrypt_signature(
+              &self.encrypted_spend_signature.expect("Spend signature doesn't exist despite having published the lock"),
+              &self.engine.bs.expect("Never generated keys despite having published the lock")
+            )?.serialize()
           )?.serialize_der().to_vec(),
           SECP.sign(
             &secp256k1::Message::from_slice(
               &self.spend_message.expect("Spend message doesn't exist despite having published the lock")
             )?,
-            &secp256k1::SecretKey::from_slice(&Secp256k1Engine::private_key_to_bytes(&self.engine.br))?
+            &secp256k1::SecretKey::from_slice(&self.engine.br.to_bytes())?
           ).serialize_der().to_vec(),
           vec![1],
           self.engine.refund_script_bytes.expect("Finishing despite not knowing the lock script")
@@ -504,14 +507,15 @@ impl ScriptedHost for BtcHost {
     buy.output[0].value = buy.output[0].value.checked_sub(fee)
       .ok_or_else(|| anyhow::anyhow!("Not enough Bitcoin to pay for {} sats of fees", fee))?;
 
-    let components = SighashComponents::new(&buy);
-    let encrypted_signature = Secp256k1Engine::encrypted_sign(
+    let mut components = SigHashCache::new(&buy);
+    let encrypted_signature = encrypted_sign(
       &self.engine.b,
       self.encryption_key.as_ref().expect("Attempted to generate encrypted sign before verifying dleq proof"),
-      &components.sighash_all(
-        &buy.input[0],
+      &components.signature_hash(
+        0,
         self.engine.lock_script(),
-        lock.output[0].value
+        lock.output[0].value,
+        SigHashType::All
       )
     )?;
 
@@ -520,7 +524,7 @@ impl ScriptedHost for BtcHost {
     let result = Ok(
       bincode::serialize(&BuyInfo {
         value: buy.output[0].value,
-        encrypted_signature: Secp256k1Engine::encrypted_signature_to_bytes(&encrypted_signature)
+        encrypted_signature: encrypted_signature.serialize()
       })?
     );
     self.encrypted_signature = Some(encrypted_signature);
@@ -537,7 +541,7 @@ impl ScriptedHost for BtcHost {
     while buy.is_err() {
       buy = self.rpc.get_transaction(&buy_hash).await;
       if buy.is_err() {
-        tokio::time::delay_for(std::time::Duration::from_secs(3)).await;
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
       }
     }
 
@@ -546,13 +550,13 @@ impl ScriptedHost for BtcHost {
       &their_signature[.. their_signature.len() - 1]
     ).expect("Signature included in the buy transaction wasn't valid despite getting on chain").serialize_compact();
 
-    Ok(Secp256k1Engine::private_key_to_little_endian_bytes(
-      &Secp256k1Engine::recover_key(
-        self.encryption_key.as_ref().expect("Attempted to recover final key before verifying dleq proof"),
-        encrypted_signature,
-        &Secp256k1Engine::bytes_to_signature(&signature).expect("Failed to deserialize decrypted signature")
-      ).expect("Failed to recover key from decrypted signature")
-    ))
+    let mut key = recover_key(
+      self.encryption_key.as_ref().expect("Attempted to recover final key before verifying dleq proof"),
+      encrypted_signature,
+      &Signature::deserialize(&signature).expect("Failed to deserialize decrypted signature")
+    ).expect("Failed to recover key from decrypted signature").to_bytes();
+    key.reverse();
+    Ok(key)
   }
 
   #[cfg(test)]
@@ -563,10 +567,8 @@ impl ScriptedHost for BtcHost {
         compressed: true,
         network: NETWORK,
         key: secp256k1::SecretKey::from_slice(
-          &Secp256k1Engine::private_key_to_bytes(
-            &Secp256k1Engine::new_private_key()
-          )
-        ).expect("Secp256k1Engine generated invalid key")
+          &Scalar::random(&mut OsRng).to_bytes()
+        ).expect("secp256kfun generated invalid key")
       }
     );
 

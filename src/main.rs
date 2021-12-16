@@ -1,9 +1,8 @@
 #![deny(unused_must_use)]
 
-mod crypt_engines;
+mod crypto;
 mod coins;
 mod cli;
-mod dl_eq;
 
 #[cfg(test)]
 mod tests;
@@ -16,8 +15,8 @@ use structopt::StructOpt;
 
 use futures::prelude::*;
 use tokio::{
-  prelude::*,
   time::timeout,
+  io::{AsyncReadExt, AsyncWriteExt},
   net::{TcpStream, TcpListener}
 };
 
@@ -25,7 +24,7 @@ use crate::{
   coins::{
     *,
     btc::{host::BtcHost, verifier::BtcVerifier},
-    meros::{client::MerosClient, verifier::MerosVerifier},
+    //meros::{client::MerosClient, verifier::MerosVerifier},
     nano::{client::NanoClient, verifier::NanoVerifier},
     xmr::{client::XmrClient, verifier::XmrVerifier},
     zec::{client::ZecShieldedClient, verifier::ZecShieldedVerifier}
@@ -54,7 +53,7 @@ async fn main() {
       ScriptedCoin::Bitcoin => BtcHost::new(&scripted_config).map(Into::into),
     }.expect("Failed to create scripted host");
     let mut unscripted_verifier: AnyUnscriptedVerifier = match opts.pair.unscripted {
-      UnscriptedCoin::Meros => MerosVerifier::new(&unscripted_config).map(Into::into),
+      //UnscriptedCoin::Meros => MerosVerifier::new(&unscripted_config).map(Into::into),
       UnscriptedCoin::Nano => NanoVerifier::new(&unscripted_config).map(Into::into),
       UnscriptedCoin::Monero => XmrVerifier::new(&unscripted_config).await.map(Into::into),
       UnscriptedCoin::ZCashShielded => ZecShieldedVerifier::new(&unscripted_config).await.map(Into::into)
@@ -65,7 +64,7 @@ async fn main() {
     // It simply removes the need to add another config flag/switch
     let opts = opts.clone();
     listen_handle = Some(tokio::spawn(async move {
-      let mut listener = TcpListener::bind(opts.tcp_address).await
+      let listener = TcpListener::bind(opts.tcp_address).await
         .expect("Failed to create TCP listener");
       info!("Listening as host on {}", opts.tcp_address);
       let (stream, addr) = listener.accept().await
@@ -103,7 +102,7 @@ async fn main() {
 
   if opts.host_or_client.is_client() {
     let mut unscripted_client: AnyUnscriptedClient = match opts.pair.unscripted {
-      UnscriptedCoin::Meros => MerosClient::new(&unscripted_config).map(Into::into),
+      //UnscriptedCoin::Meros => MerosClient::new(&unscripted_config).map(Into::into),
       UnscriptedCoin::Nano => NanoClient::new(&unscripted_config).map(Into::into),
       UnscriptedCoin::Monero => XmrClient::new(&unscripted_config).await.map(Into::into),
       UnscriptedCoin::ZCashShielded => ZecShieldedClient::new(&unscripted_config).await.map(Into::into),

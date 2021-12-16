@@ -116,7 +116,7 @@ impl BtcRpc {
       fee: Option<u64>,
       height: isize,
       tx_hash: String
-    };
+    }
 
     let history: Vec<AddressHistoryResponse> = self.rpc_call(
       "getaddresshistory",

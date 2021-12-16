@@ -9,7 +9,7 @@ use argon2::{self, Config, ThreadMode, Variant, Version, hash_raw};
 
 use serde::Deserialize;
 
-use crate::crypt_engines::{CryptEngine, ed25519_engine::Ed25519Sha};
+use crate::crypto::{CryptEngine, ed25519_engine::Ed25519Sha};
 
 const CONFIG: Config = Config {
   variant: Variant::Argon2d,

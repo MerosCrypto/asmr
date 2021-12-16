@@ -93,11 +93,11 @@ impl MerosRpc {
     #[derive(Deserialize, Debug)]
     struct OutputResponse {
       amount: String
-    };
+    }
     #[derive(Deserialize, Debug)]
     struct TxResponse {
       outputs: Vec<OutputResponse>
-    };
+    }
 
     let tx: TxResponse = self.rpc_call("transactions_getTransaction".to_string(), [input.hash]).await?;
     if tx.outputs.len() <= (input.nonce as usize) {
@@ -110,7 +110,7 @@ impl MerosRpc {
     #[derive(Deserialize, Debug)]
     struct StatusResponse {
       verified: bool
-    };
+    }
 
     let status: StatusResponse = self.rpc_call("consensus_getStatus".to_string(), [hash]).await?;
     Ok(status.verified)

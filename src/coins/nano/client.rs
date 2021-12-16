@@ -5,10 +5,22 @@ use std::{
 };
 
 use async_trait::async_trait;
+
+#[cfg(test)]
+use rand::rngs::OsRng;
+
+use curve25519_dalek::{
+  scalar::Scalar,
+  edwards::EdwardsPoint,
+  constants::ED25519_BASEPOINT_TABLE
+};
+
+use dleq::engines::ed25519::Ed25519Engine;
+
 use nanocurrency_types::{Account, BlockHash};
 
 use crate::{
-  crypt_engines::{KeyBundle, CryptEngine, ed25519_engine::Ed25519Blake2b},
+  crypto::KeyBundle,
   coins::{
     UnscriptedClient, ScriptedVerifier,
     nano::engine::{NanoConfig, NanoEngine}
@@ -18,8 +30,8 @@ use crate::{
 pub struct NanoClient {
   engine: NanoEngine,
   refund: Account,
-  key_share: Option<<Ed25519Blake2b as CryptEngine>::PrivateKey>,
-  shared_key: Option<<Ed25519Blake2b as CryptEngine>::PublicKey>,
+  key_share: Option<Scalar>,
+  shared_key: Option<EdwardsPoint>,
   address: Option<String>,
   input: Option<(BlockHash, u128)>,
 }
@@ -42,10 +54,10 @@ impl NanoClient {
 #[async_trait]
 impl UnscriptedClient for NanoClient {
   fn generate_keys<Verifier: ScriptedVerifier>(&mut self, verifier: &mut Verifier) -> Vec<u8> {
-    let (dl_eq, key) = verifier.generate_keys_for_engine::<Ed25519Blake2b>(PhantomData);
+    let (dleq, key) = verifier.generate_keys_for_engine::<Ed25519Engine>(PhantomData);
     self.key_share = Some(key);
     KeyBundle {
-      dl_eq,
+      dleq,
       B: verifier.B(),
       BR: verifier.BR(),
       scripted_destination: verifier.destination_script()
@@ -53,8 +65,8 @@ impl UnscriptedClient for NanoClient {
   }
 
   fn verify_keys<Verifier: ScriptedVerifier>(&mut self, keys: &[u8], verifier: &mut Verifier) -> anyhow::Result<()> {
-    let host_key = verifier.verify_keys_for_engine::<Ed25519Blake2b>(&keys, PhantomData)?;
-    let our_pubkey = Ed25519Blake2b::to_public_key(self.key_share.as_ref().expect("Verifying DLEQ proof before generating keys"));
+    let host_key = verifier.verify_keys_for_engine::<Ed25519Engine>(&keys, PhantomData)?;
+    let our_pubkey = self.key_share.as_ref().expect("Verifying DLEQ proof before generating keys") * &ED25519_BASEPOINT_TABLE;
     self.shared_key = Some(our_pubkey + host_key);
     Ok(())
   }
@@ -69,7 +81,7 @@ impl UnscriptedClient for NanoClient {
   async fn wait_for_deposit(&mut self) -> anyhow::Result<()> {
     let address = self.address.clone().expect("Waiting for deposit despite not knowing the deposit address");
     while self.input.is_none() {
-      tokio::time::delay_for(std::time::Duration::from_secs(5)).await;
+      tokio::time::sleep(std::time::Duration::from_secs(5)).await;
       let mut inputs = self.engine.get_confirmed_pending(&address).await?;
       inputs.truncate(1);
       self.input = inputs.pop();
@@ -87,7 +99,7 @@ impl UnscriptedClient for NanoClient {
       */
       if let Some(recovered_key) = verifier.claim_refund_or_recover_key().await? {
         self.engine.send(
-          Ed25519Blake2b::little_endian_bytes_to_private_key(recovered_key)?,
+          Scalar::from_bytes_mod_order(recovered_key),
           self.key_share.expect("Finishing before generating keys"),
           input,
           self.refund,
@@ -100,7 +112,7 @@ impl UnscriptedClient for NanoClient {
 
   #[cfg(test)]
   fn override_refund_with_random_address(&mut self) {
-    self.refund = Account(Ed25519Blake2b::to_public_key(&Ed25519Blake2b::new_private_key()).compress().to_bytes());
+    self.refund = Account((&Scalar::random(&mut OsRng) * &ED25519_BASEPOINT_TABLE).compress().to_bytes());
   }
   #[cfg(test)]
   async fn send_from_node(&mut self) -> anyhow::Result<()> {

@@ -1,19 +1,21 @@
-#[allow(unused_imports)]
 use std::{
   marker::PhantomData,
-  convert::TryInto,
   path::Path,
   fs::File
 };
 
+#[cfg(test)]
+use std::convert::TryInto;
+
 use async_trait::async_trait;
 
-#[allow(unused_imports)]
-use rand::{rngs::OsRng, RngCore};
+#[cfg(test)]
+use rand::{RngCore, rngs::OsRng};
 
-#[allow(unused_imports)]
+use jubjub::Fr;
+
+#[cfg(test)]
 use zcash_primitives::{
-  primitives::Note,
   zip32::{ExtendedSpendingKey, ExtendedFullViewingKey}
 };
 
@@ -21,7 +23,7 @@ use zcash_primitives::{
 use zcash_client_backend::encoding::encode_payment_address;
 
 use crate::{
-  crypt_engines::{KeyBundle, CryptEngine, jubjub_engine::JubjubEngine},
+  crypto::{KeyBundle, sapling::SaplingEngine},
   coins::{UnscriptedClient, ScriptedVerifier, zec::engine::*}
 };
 
@@ -46,13 +48,13 @@ impl ZecShieldedClient {
 #[async_trait]
 impl UnscriptedClient for ZecShieldedClient {
   fn generate_keys<Verifier: ScriptedVerifier>(&mut self, verifier: &mut Verifier) -> Vec<u8> {
-    let (dl_eq, key) = verifier.generate_keys_for_engine::<JubjubEngine>(PhantomData);
+    let (dleq, key) = verifier.generate_keys_for_engine::<SaplingEngine>(PhantomData);
     self.engine.ask = Some(key);
     KeyBundle {
-      dl_eq: bincode::serialize(
+      dleq: bincode::serialize(
         &ZecKeys {
-          dl_eq,
-          nsk: JubjubEngine::private_key_to_bytes(&self.engine.nsk)
+          dleq,
+          nsk: self.engine.nsk.to_bytes()
         }
       ).unwrap(),
       B: verifier.B(),
@@ -63,11 +65,15 @@ impl UnscriptedClient for ZecShieldedClient {
 
   fn verify_keys<Verifier: ScriptedVerifier>(&mut self, keys: &[u8], verifier: &mut Verifier) -> anyhow::Result<()> {
     let mut bundle: KeyBundle = bincode::deserialize(keys)?;
-    let zec_keys: ZecKeys = bincode::deserialize(&bundle.dl_eq)?;
-    bundle.dl_eq = zec_keys.dl_eq;
+    let zec_keys: ZecKeys = bincode::deserialize(&bundle.dleq)?;
+    bundle.dleq = zec_keys.dleq;
+    let nsk = Fr::from_bytes(&zec_keys.nsk);
+    if !bool::from(nsk.is_some()) {
+      anyhow::bail!("Invalid nsk value provided by counterparty");
+    }
     self.engine.set_ak_nsk(
-      &verifier.verify_keys_for_engine::<JubjubEngine>(&bincode::serialize(&bundle).unwrap(), PhantomData)?,
-      &JubjubEngine::bytes_to_private_key(zec_keys.nsk)?
+      verifier.verify_keys_for_engine::<SaplingEngine>(&bincode::serialize(&bundle).unwrap(), PhantomData)?,
+      nsk.unwrap()
     );
     Ok(())
   }
@@ -87,10 +93,11 @@ impl UnscriptedClient for ZecShieldedClient {
       Ok(())
     } else {
       if let Some(recovered_key) = verifier.claim_refund_or_recover_key().await? {
-        self.engine.claim(
-          JubjubEngine::little_endian_bytes_to_private_key(recovered_key)?,
-          &self.engine.config.refund
-        ).await?;
+        let recovered_key = Fr::from_bytes(&recovered_key);
+        if bool::from(recovered_key.is_some()) == false {
+          anyhow::bail!("Recovered invalid key");
+        }
+        self.engine.claim(recovered_key.unwrap(), &self.engine.config.refund).await?;
       }
       Ok(())
     }

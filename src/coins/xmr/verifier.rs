@@ -1,6 +1,5 @@
 use std::{
   marker::PhantomData,
-  convert::TryInto,
   io::Write,
   path::Path,
   fs::File
@@ -8,21 +7,11 @@ use std::{
 
 use async_trait::async_trait;
 
-use curve25519_dalek::scalar::Scalar;
+use curve25519_dalek::{scalar::Scalar, edwards::CompressedEdwardsY};
 
-use monero::{
-  util::ringct::EcdhInfo,
-  cryptonote::hash::Hash
-};
+use dleq::{DLEqProof, engines::{DLEqEngine, ed25519::Ed25519Engine}};
 
-use crate::{
-  crypt_engines::{CryptEngine, ed25519_engine::Ed25519Sha},
-  dl_eq::DlEqProof,
-  coins::{
-    UnscriptedVerifier, ScriptedHost,
-    xmr::engine::*
-  }
-};
+use crate::coins::{UnscriptedVerifier, ScriptedHost, xmr::engine::*};
 
 pub struct XmrVerifier(XmrEngine);
 
@@ -40,14 +29,14 @@ impl XmrVerifier {
 
 #[async_trait]
 impl UnscriptedVerifier for XmrVerifier {
-  fn generate_keys_for_engine<OtherCrypt: CryptEngine>(&mut self, _phantom: PhantomData<&OtherCrypt>) -> (Vec<u8>, OtherCrypt::PrivateKey) {
-    let (proof, key1, key2) = DlEqProof::<Ed25519Sha, OtherCrypt>::new();
+  fn generate_keys_for_engine<OtherCrypt: DLEqEngine>(&mut self, _phantom: PhantomData<&OtherCrypt>) -> (Vec<u8>, OtherCrypt::PrivateKey) {
+    let (proof, key1, key2) = DLEqProof::<Ed25519Engine, OtherCrypt>::new(&mut rand::rngs::OsRng);
     self.0.k = Some(key1);
     (
       bincode::serialize(
         &XmrKeys {
-          dl_eq: proof.serialize(),
-          view_share: Ed25519Sha::private_key_to_bytes(&self.0.view)
+          dleq: proof.serialize().expect("Couldn't serialize a DLEq proof"),
+          view_share: self.0.view.to_bytes()
         }
       ).expect("Couldn't serialize the unscripted keys"),
       key2
@@ -60,11 +49,11 @@ impl UnscriptedVerifier for XmrVerifier {
     We compensate by using an UnscriptedKeys struct, wrapping the proof
     verify_dleq should be renamed to verify_keys as it no longer just takes in the dl eq proof
   */
-  fn verify_dleq_for_engine<OtherCrypt: CryptEngine>(&mut self, dleq: &[u8], _: PhantomData<&OtherCrypt>) -> anyhow::Result<OtherCrypt::PublicKey> {
+  fn verify_dleq_for_engine<OtherCrypt: DLEqEngine>(&mut self, dleq: &[u8], _: PhantomData<&OtherCrypt>) -> anyhow::Result<OtherCrypt::PublicKey> {
     let keys: XmrKeys = bincode::deserialize(dleq)?;
-    let dleq = DlEqProof::<OtherCrypt, Ed25519Sha>::deserialize(&keys.dl_eq)?;
+    let dleq = DLEqProof::<OtherCrypt, Ed25519Engine>::deserialize(&keys.dleq)?;
     let (key1, key2) = dleq.verify()?;
-    self.0.view += Ed25519Sha::bytes_to_private_key(keys.view_share)?;
+    self.0.view += Scalar::from_bytes_mod_order(keys.view_share);
     self.0.set_spend(key2);
     Ok(key1)
   }
@@ -78,53 +67,19 @@ impl UnscriptedVerifier for XmrVerifier {
       anyhow::bail!("Invalid version/unlock time");
     }
 
-    let outputs = send.prefix.check_outputs(&pair, 0..1, 0..1).unwrap();
+    // Calls unwrap due to get_deposit already validating this
+    let outputs = send.check_outputs(&pair, 0..1, 0..1).unwrap();
 
     // Decrypt the amount, verify the accuracy of the commitment, and confirm with the user
-    let enc_amount;
-    if let EcdhInfo::Bulletproof2 { amount } = send.rct_signatures.sig.as_ref().expect("Transaction from RPC didn't have signature data").ecdh_info[outputs[0].index] {
-      enc_amount = u64::from_le_bytes(amount.to_fixed_bytes());
-    } else {
-      anyhow::bail!("Unrecognized transaction type");
-    }
-
-    let mut amount_key;
-    if let Some(uncompressed) = outputs[0].tx_pubkey.point.decompress() {
-      amount_key = self.0.view * uncompressed;
-    } else {
-      anyhow::bail!("Invalid key used in transaction");
-    }
-    amount_key = amount_key.mul_by_cofactor();
-    let mut to_hash = amount_key.compress().to_bytes().to_vec();
-    // TODO: Handle this edge case
-    if outputs[0].index > 127 {
-      anyhow::bail!("Transaction output uses VarInt encoding which isn't supported")
-    }
-    to_hash.push(outputs[0].index as u8);
-    let amount_key = Scalar::from_bytes_mod_order(
-      Hash::hash(&to_hash).to_bytes()
-    ).to_bytes();
-
-    let mut amount_enc_key = "amount".as_bytes().to_vec();
-    amount_enc_key.extend(&amount_key);
-
-    let amount = u64::from_le_bytes(
-      Hash::hash(&amount_enc_key).to_fixed_bytes()[0 .. 8].try_into().unwrap()
-    ) ^ enc_amount;
-
-    let mut commitment_key = "commitment_mask".as_bytes().to_vec();
-    commitment_key.extend(&amount_key);
-    let commitment_key = Scalar::from_bytes_mod_order(
-      Hash::hash(&commitment_key).to_fixed_bytes()
-    );
-    if (
-      Ed25519Sha::to_public_key(&commitment_key) +
-      (*C * Scalar::from(amount))
-    ) != Ed25519Sha::bytes_to_public_key(
-      &send.rct_signatures.sig.as_ref().unwrap().out_pk[outputs[0].index].mask.key
-    )? {
-      anyhow::bail!("Invalid commitment")
-    }
+    let amount = send.rct_signatures.sig.as_ref().expect("Transaction from RPC didn't have signature data")
+      .ecdh_info[outputs[0].index()].open_commitment(
+        &pair,
+        &outputs[0].tx_pubkey(),
+        outputs[0].index(),
+        &CompressedEdwardsY(
+          send.rct_signatures.sig.as_ref().unwrap().out_pk[outputs[0].index()].mask.key
+        ).decompress().ok_or(anyhow::anyhow!("Invalid point for commitment"))?
+      ).ok_or(anyhow::anyhow!("Invalid commitment"))?.amount;
 
     if !cfg!(test) {
       print!("You will receive {} atomic units of XMR. Continue (yes/no)? ", amount);
@@ -139,9 +94,9 @@ impl UnscriptedVerifier for XmrVerifier {
     Ok(())
   }
 
-  async fn finish<Host: ScriptedHost >(&mut self, host: &Host) -> anyhow::Result<()> {
+  async fn finish<Host: ScriptedHost>(&mut self, host: &Host) -> anyhow::Result<()> {
     self.0.claim(
-      Ed25519Sha::little_endian_bytes_to_private_key(host.recover_final_key().await?)?,
+      Scalar::from_bytes_mod_order(host.recover_final_key().await?),
       &self.0.config.destination
     ).await
   }
