@@ -9,10 +9,11 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
-      - name: Install Rust nightly
+      - name: Install Rust stable
         uses: actions-rs/toolchain@v1
         with:
-          override: true
+          toolchain: stable
+          default: true
 
       - name: Cargo cache
         uses: actions/cache@v2
@@ -21,9 +22,9 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('rust-toolchain') }}-${{ hashFiles('Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-stable-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-${{ hashFiles('rust-toolchain') }}-
+            ${{ runner.os }}-cargo-stable-
 
       - name: Compile
         run: cargo rustc -- -D warnings
