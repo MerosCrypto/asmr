@@ -1,11 +1,9 @@
 use digest::Digest;
+use blake2::Blake2b;
 
 use rand::rngs::OsRng;
 
-use curve25519_dalek::{
-  scalar,
-  constants::ED25519_BASEPOINT_TABLE
-};
+use curve25519_dalek::constants::ED25519_BASEPOINT_TABLE;
 use secp256kfun::{marker::*, g, G};
 
 use bitcoin::secp256k1::{self, Secp256k1};
@@ -48,23 +46,22 @@ fn secp256k1() {
 fn ed25519() {
   let _ = env_logger::builder().is_test(true).try_init();
 
-  let signing_key = scalar::Scalar::random(&mut OsRng);
+  let signing_key = ed25519::random_scalar();
   let pub_signing_key = &signing_key * &ED25519_BASEPOINT_TABLE;
-  let encryption_key = scalar::Scalar::random(&mut OsRng);
+  let encryption_key = ed25519::random_scalar();
   let pub_encryption_key = &encryption_key * &ED25519_BASEPOINT_TABLE;
   let message: [u8; 32] = sha2::Sha256::digest(b"hello world").into();
 
-  let enc_sig = ed25519::encrypted_sign(&signing_key, &pub_encryption_key, &message)
+  let enc_sig = ed25519::encrypted_sign::<Blake2b>(&signing_key, &pub_encryption_key, &message)
     .expect("Failed to create encrypted signature");
-  ed25519::encrypted_verify(&pub_signing_key, &pub_encryption_key, &enc_sig, &message)
+  ed25519::encrypted_verify::<Blake2b>(&pub_signing_key, &pub_encryption_key, &enc_sig, &message)
     .expect("Failed to verify encrypted signature");
   let dec_sig = ed25519::decrypt_signature(&enc_sig, &encryption_key)
     .expect("Failed to decrypt signature");
 
-  let sig_bytes = dec_sig.serialize();
   let pubkey_bytes = pub_signing_key.compress().to_bytes();
   // Reuse encrypted verification with a zero encryption key to verify the decrypted signature
-  ed25519::encrypted_verify(&pub_signing_key, &curve25519_dalek::traits::Identity::identity(), &dec_sig, &message);
+  ed25519::encrypted_verify::<Blake2b>(&pub_signing_key, &curve25519_dalek::traits::Identity::identity(), &dec_sig, &message).unwrap();
 
   let recreated_encryption_key = ed25519::recover_key(&pub_encryption_key, &enc_sig, &dec_sig)
     .expect("Failed to recover signature encryption key");

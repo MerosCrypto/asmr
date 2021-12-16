@@ -6,9 +6,6 @@ use std::{
 
 use async_trait::async_trait;
 
-#[cfg(test)]
-use rand::rngs::OsRng;
-
 use curve25519_dalek::{
   scalar::Scalar,
   edwards::EdwardsPoint,
@@ -20,7 +17,7 @@ use dleq::engines::ed25519::Ed25519Engine;
 use nanocurrency_types::{Account, BlockHash};
 
 use crate::{
-  crypto::KeyBundle,
+  crypto::{KeyBundle, ed25519},
   coins::{
     UnscriptedClient, ScriptedVerifier,
     nano::engine::{NanoConfig, NanoEngine}
@@ -112,7 +109,7 @@ impl UnscriptedClient for NanoClient {
 
   #[cfg(test)]
   fn override_refund_with_random_address(&mut self) {
-    self.refund = Account((&Scalar::random(&mut OsRng) * &ED25519_BASEPOINT_TABLE).compress().to_bytes());
+    self.refund = Account((&ed25519::random_scalar() * &ED25519_BASEPOINT_TABLE).compress().to_bytes());
   }
   #[cfg(test)]
   async fn send_from_node(&mut self) -> anyhow::Result<()> {
