@@ -8,10 +8,7 @@ mkdir -p ~/coins/nano
 cd ~/coins/nano
 
 if [ ! -f nano_node ]; then
-  # TODO wait for the testnet -> devnet rename to make it into a tag
-  #git clone --depth 1 --branch V21.1 'https://github.com/nanocurrency/nano-node' .
-  git clone 'https://github.com/nanocurrency/nano-node' .
-  git checkout 05f7318
+  git clone --depth 1 --branch V21.3 'https://github.com/nanocurrency/nano-node' .
   git submodule update --init --depth 1
   opts=()
   if [ -e /tmp/boost ]; then
