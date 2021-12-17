@@ -20,6 +20,7 @@ fi
 
 git clone --depth 1 --branch 4.0.2 'https://github.com/spesmilo/electrum'
 pushd electrum
+./contrib/make_libsecp256k1.sh
 python3 -m pip install --user -e .
 popd
 
