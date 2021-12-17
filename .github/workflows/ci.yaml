@@ -77,9 +77,6 @@ jobs:
             ${{ runner.os }}-pip-electrum-
             ${{ runner.os }}-pip-
 
-      - name: Setup Boost
-        run: sudo apt-get install libboost-all-dev
-
       - name: Setup Bitcoin
         run: ./ci/setup-coins/bitcoin.sh
 

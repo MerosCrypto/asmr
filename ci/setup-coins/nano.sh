@@ -10,12 +10,9 @@ cd ~/coins/nano
 if [ ! -f nano_node ]; then
   git clone --depth 1 --branch V21.3 'https://github.com/nanocurrency/nano-node' .
   git submodule update --init --depth 1
-  opts=()
-  if [ -e /tmp/boost ]; then
-    # We're using Nano's prebuilt Boost
-    opts+=(-DBOOST_ROOT=/tmp/boost -DNANO_SHARED_BOOST=ON)
-  fi
-  cmake . -DACTIVE_NETWORK=nano_dev_network "${opts[@]}"
+  mkdir /tmp/boost
+  BOOST_ROOT=/tmp/boost bash util/build_prep/bootstrap_boost.sh -m
+  cmake . -DACTIVE_NETWORK=nano_dev_network -DBOOST_ROOT=/tmp/boost
   make -j2
 fi
 
