@@ -66,7 +66,7 @@ jobs:
         uses: actions/cache@v2
         with:
           path: ~/coins/nano/nano_node
-          key: ${{ runner.os }}-nano-node-develop
+          key: ${{ runner.os }}-nano-node-v21.3
 
       - name: Pip cache
         uses: actions/cache@v2
