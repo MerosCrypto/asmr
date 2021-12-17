@@ -12,7 +12,7 @@ if [ ! -f nano_node ]; then
   git submodule update --init --depth 1
   mkdir /tmp/boost
   BOOST_ROOT=/tmp/boost bash util/build_prep/bootstrap_boost.sh -m
-  cmake . -DACTIVE_NETWORK=nano_dev_network -DBOOST_ROOT=/tmp/boost
+  cmake . -DACTIVE_NETWORK=nano_test_network -DBOOST_ROOT=/tmp/boost
   make -j2
 fi
 
@@ -29,7 +29,7 @@ done
 
 wallet="$(curl -s '[::1]:45000' --data '{"action":"wallet_create"}' | jq -r .wallet)"
 
-# genesis key from https://github.com/nanocurrency/nano-node/blob/286c70b5b5833dbaa5d10388fa97dc662b6dff77/nano/secure/common.cpp#L28
+# Genesis key from https://github.com/nanocurrency/nano-node/blob/V21.3/nano/secure/common.cpp#L30
 curl -s '[::1]:45000' --data '{"action":"wallet_add","wallet":"'"$wallet"'","key":"34F0A37AAD20F4A260F0A5B3CB3D7FB50673212263E58A380BC10474BB039CE4"}' >/dev/null
 wallet_account="nano_3e3j5tkog48pnny9dmfzj1r16pg8t1e76dz5tmac6iq689wyjfpiij4txtdo"
 
