@@ -10,9 +10,12 @@ cd ~/coins/litecoin
 ltc_version="0.21.3" && curl https://download.litecoin.org/litecoin-"$ltc_version"/linux/litecoin-"$ltc_version"-x86_64-linux-gnu.tar.gz | tar -xzf -
 mv litecoin-"$ltc_version" litecoin-node
 
+python3 -m pip install virtualenv
+
 git clone --depth 1 'https://github.com/spesmilo/electrumx'
 pushd electrumx
-python3 -m pip install -e .
+virtualenv venv
+./venv/python3 -m pip install -e .
 popd
 
 git clone --depth 1 'https://github.com/pooler/electrum-ltc'
@@ -23,7 +26,7 @@ popd
 ./litecoin-node/bin/litecoind -regtest -daemon -server=1 -txindex=1 -prune=0 -rpcport=19443 -rpcuser=ci -rpcpassword=password
 
 mkdir -p ~/electrumx/db
-COIN=Litecoin DB_DIRECTORY="~/electrumx/db" DAEMON_URL="ci:password@127.0.0.1:19443" SERVICES="tcp://127.0.0.1:5000" PEER_DISCOVERY=self ./electrumx/electrumx_server &
+COIN=Litecoin DB_DIRECTORY="~/electrumx/db" DAEMON_URL="ci:password@127.0.0.1:19443" SERVICES="tcp://127.0.0.1:5000" PEER_DISCOVERY=self ./electrumx/venv/python3 ./electrumx/electrumx_server &
 ./electrum-ltc/run_electrum --offline setconfig rpcport 3000
 ./electrum-ltc/run_electrum --offline setconfig rpcuser ci
 ./electrum-ltc/run_electrum --offline setconfig rpcpassword password
@@ -32,7 +35,7 @@ COIN=Litecoin DB_DIRECTORY="~/electrumx/db" DAEMON_URL="ci:password@127.0.0.1:19
 ./electrum-ltc/run_electrum load_wallet
 
 address="$(./electrum-ltc/run_electrum getunusedaddress)"
-./litecoin-node/bin/litecoin-cli -regtest -rpcuser=ci -rpcpassword=password generatetoaddress 110 "$address"
+./litecoin-node/bin/litecoin-cli --rpcport=19443 -rpcuser=ci -rpcpassword=password generatetoaddress 110 "$address"
 
 destination="$(./electrum-ltc/run_electrum getunusedaddress)"
 refund="$(./electrum-ltc/run_electrum getunusedaddress)"
