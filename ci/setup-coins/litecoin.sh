@@ -22,13 +22,8 @@ popd
 
 ./litecoin-node/bin/litecoind -regtest -daemon -server=1 -txindex=1 -prune=0 -rpcport=19443 -rpcuser=ci -rpcpassword=password
 
-echo 'COIN=Litecoin' > ~/electrumx.conf
-echo 'SERVICES=tcp://127.0.0.1:5000' > ~/electrumx.conf
-echo 'DAEMON_URL=ci:password@127.0.0.1:19443' > ~/electrumx.conf
-echo 'PEER_DISCOVERY=self' > ~/electrumx.conf
-
 mkdir -p ~/electrumx/db
-DB_DIRECTORY=~/electrumx/db ./electrumx/electrumx_server &
+COIN=Litecoin DB_DIRECTORY="~/electrumx/db" DAEMON_URL="ci:password@127.0.0.1:19443" SERVICES="tcp://127.0.0.1:5000" PEER_DISCOVERY=self ./electrumx/electrumx_server &
 ./electrum-ltc/run_electrum --offline setconfig rpcport 3000
 ./electrum-ltc/run_electrum --offline setconfig rpcuser ci
 ./electrum-ltc/run_electrum --offline setconfig rpcpassword password
