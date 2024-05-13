@@ -34,7 +34,7 @@ jobs:
           rustup default stable
           sudo apt-get update
           # Electrum dependencies
-          sudo apt-get install libsecp256k1-0 python3-setuptools python3-cryptography
+          sudo apt-get install libsecp256k1-0 python3-setuptools python3-cryptography python3-scrypt
 
       - name: Pip cache
         uses: actions/cache@v2
