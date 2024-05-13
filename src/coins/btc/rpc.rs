@@ -91,7 +91,7 @@ impl BtcRpc {
   }
 
   pub async fn get_spendable(&self, address: &str) -> anyhow::Result<Vec<UnspentInputResponse>> {
-    tokio::time::sleep(core::time::Duration::from_secs(10)).await;
+    tokio::time::delay_for(core::time::Duration::from_secs(10)).await;
     self.rpc_call("getaddressunspent", &[address]).await
   }
 
