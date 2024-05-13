@@ -44,6 +44,6 @@ runs:
       run: |
         ./monero-wallet-rpc --allow-mismatched-daemon-version \
           --daemon-address 0.0.0.0:18081 --daemon-login user:pass \
-          --disable-rpc-login --rpc-bind-port 18082 \
+          --rpc-login=user:pass --rpc-bind-port 18082 \
           --wallet-dir ./ \
           --detach
