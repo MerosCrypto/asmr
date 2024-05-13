@@ -36,15 +36,6 @@ jobs:
           # Electrum dependencies
           sudo apt-get install libsecp256k1-0 python3-setuptools python3-cryptography python3-scrypt
 
-      - name: Pip cache
-        uses: actions/cache@v2
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-electrum-4.0.2
-          restore-keys: |
-            ${{ runner.os }}-pip-electrum-
-            ${{ runner.os }}-pip-
-
       - name: Setup Litecoin
         run: sudo ./ci/setup-coins/litecoin.sh
 
@@ -58,7 +49,7 @@ jobs:
         run: sudo ./ci/setup-coins/monero.sh
 
       - name: Fix permissions
-        run: sudo chown $(whoami):$(whoami) ./config && chmod 777 -R ./config
+        run: sudo chown runner:runner ./config && sudo chmod 777 -R ./config
 
       - name: Run Litecoin-Monero swap tests
         run: RUST_LOG=asmr=debug cargo test --features test_litecoin_node,test_monero_node -- ltc_and_xmr --nocapture
