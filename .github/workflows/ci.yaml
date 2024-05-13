@@ -13,7 +13,7 @@ jobs:
         run: sudo apt install -y ca-certificates libssl-dev
 
       - name: Compile
-        run: cargo check -- -A warnings
+        run: cargo rustc -- -A warnings
 
       - name: Unit tests
         run: RUST_LOG=asmr=debug cargo test
