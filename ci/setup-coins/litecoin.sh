@@ -17,11 +17,11 @@ pushd electrum-ltc
 python3 -m pip install --user -e .
 popd
 
-./litecoin-node/bin/litecoind -regtest -daemon -server=1 -txindex=1 -prune=0 -rpcport=18443 -rpcuser=ci -rpcpassword=password
+./litecoin-node/bin/litecoind -regtest -daemon -server=1 -txindex=1 -prune=0 -rpcport=19443 -rpcuser=ci -rpcpassword=password
 
 echo 'COIN=Litecoin' > ~/electrumx.conf
 echo 'SERVICES=tcp://127.0.0.1:5000' > ~/electrumx.conf
-echo 'DAEMON_URL=ci:password@127.0.0.1:18443' > ~/electrumx.conf
+echo 'DAEMON_URL=ci:password@127.0.0.1' > ~/electrumx.conf
 echo 'PEER_DISCOVERY=self' > ~/electrumx.conf
 
 ./electrs/target/debug/electrs --network regtest &
