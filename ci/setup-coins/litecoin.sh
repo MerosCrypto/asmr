@@ -28,7 +28,7 @@ echo 'PEER_DISCOVERY=self' > ~/electrumx.conf
 ./electrum-ltc/run_electrum --regtest --offline setconfig rpcport 3000
 ./electrum-ltc/run_electrum --regtest --offline setconfig rpcuser ci
 ./electrum-ltc/run_electrum --regtest --offline setconfig rpcpassword password
-./electrum-ltc/run_electrum --regtest daemon -d -s 127.0.0.1:5000:t
+./electrum-ltc/run_electrum --regtest daemon -d -s 127.0.0.1:5000:t --nosegwit
 ./electrum-ltc/run_electrum --regtest create
 ./electrum-ltc/run_electrum --regtest load_wallet
 
