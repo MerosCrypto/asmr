@@ -30,22 +30,22 @@ chmod 777 -R /var/electrumx/db
 ALLOW_ROOT=true COIN=Litecoin NET=regtest DB_DIRECTORY="/var/electrumx/db" DAEMON_URL="ci:password@127.0.0.1:19443" SERVICES="tcp://127.0.0.1:5000" PEER_DISCOVERY=self ./electrumx/venv/bin/python3 ./electrumx/electrumx_server &
 sleep 1
 
-./electrum-ltc/run_electrum --offline setconfig rpcport 3000
-./electrum-ltc/run_electrum --offline setconfig rpcuser ci
-./electrum-ltc/run_electrum --offline setconfig rpcpassword password
-./electrum-ltc/run_electrum daemon -s 127.0.0.1:5000:t &
+./electrum-ltc/run_electrum --regtest --offline setconfig rpcport 3000
+./electrum-ltc/run_electrum --regtest --offline setconfig rpcuser ci
+./electrum-ltc/run_electrum --regtest --offline setconfig rpcpassword password
+./electrum-ltc/run_electrum --regtest daemon -s 127.0.0.1:5000:t &
 sleep 10
-./electrum-ltc/run_electrum create
-./electrum-ltc/run_electrum load_wallet
+./electrum-ltc/run_electrum --regtest create
+./electrum-ltc/run_electrum --regtest load_wallet
 
 ./litecoin-node/bin/litecoin-cli --rpcport=19443 -rpcuser=ci -rpcpassword=password createwallet ""
 address="$(./litecoin-node/bin/litecoin-cli --rpcport=19443 -rpcuser=ci -rpcpassword=password getnewaddress)"
 ./litecoin-node/bin/litecoin-cli --rpcport=19443 -rpcuser=ci -rpcpassword=password generatetoaddress 110 "$address"
 
-./litecoin-node/bin/litecoin-cli --rpcport=19443 -rpcuser=ci -rpcpassword=password sendtoaddress "$(./electrum-ltc/run_electrum getunusedaddress)" 100
+./litecoin-node/bin/litecoin-cli --rpcport=19443 -rpcuser=ci -rpcpassword=password sendtoaddress "$(./electrum-ltc/run_electrum --regtest getunusedaddress)" 100
 
-destination="$(./electrum-ltc/run_electrum getunusedaddress)"
-refund="$(./electrum-ltc/run_electrum getunusedaddress)"
+destination="$(./electrum-ltc/run_electrum --regtest getunusedaddress)"
+refund="$(./electrum-ltc/run_electrum --regtest getunusedaddress)"
 
 cat > "$config_dir/litecoin.json" << EOF
 {
