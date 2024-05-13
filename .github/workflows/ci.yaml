@@ -49,6 +49,12 @@ jobs:
       - name: Setup Litecoin
         run: ./ci/setup-coins/litecoin.sh
 
+      - name: Run a Monero Regtest Node
+        uses: ./.github/actions/monero
+
+      - name: Run a Monero Wallet-RPC
+        uses: ./.github/actions/monero-wallet-rpc
+
       - name: Setup Monero
         run: ./ci/setup-coins/monero.sh
 
