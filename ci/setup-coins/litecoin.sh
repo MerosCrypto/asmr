@@ -33,8 +33,8 @@ sleep 1
 ./electrum-ltc/run_electrum --offline setconfig rpcport 3000
 ./electrum-ltc/run_electrum --offline setconfig rpcuser ci
 ./electrum-ltc/run_electrum --offline setconfig rpcpassword password
-./electrum-ltc/run_electrum daemon -d -s 127.0.0.1:5000:t
-sleep 1
+./electrum-ltc/run_electrum daemon -s 127.0.0.1:5000:t &
+sleep 10
 ./electrum-ltc/run_electrum create
 ./electrum-ltc/run_electrum load_wallet
 
