@@ -23,22 +23,20 @@ digest = "0.9"
 sha2 = "0.9"
 blake2 = "0.9"
 secp256kfun = { version = "0.6", default-features = false, features = ["serde"] }
-curve25519-dalek = { version = "3", features = ["serde"] }
+curve25519-dalek = { version = "4", features = ["rand_core", "serde"] }
 serde = { version = "1", features = ["derive"] }
 derive_more = "0.99"
 bincode = "1"
 serde_json = "1"
 reqwest = { version = "0.10", features = ["json"] }
 bitcoin = { git = "https://github.com/rust-litecoin/rust-litecoin", branch = "ltc" }
-nanocurrency-types = "0.3"
 num_cpus = "1"
-monero = "0.12"
+monero = "0.21"
 digest_auth = "0.2"
 
 [features]
 no_confs = []
 test_litecoin_node = []
-test_nano_node = []
 test_monero_node = []
 
 # Always optimize dependencies

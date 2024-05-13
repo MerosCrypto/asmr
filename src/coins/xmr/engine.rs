@@ -249,7 +249,7 @@ impl XmrEngine {
             .await?
             .expect("Couldn't get transaction included in block");
 
-          let outputs = result.0.prefix.check_outputs(pair, 0..1, 0..1);
+          let outputs = result.0.check_outputs(pair, 0..1, 0..1);
           if outputs.is_err() || (outputs.unwrap().len() == 0) {
             continue;
           }

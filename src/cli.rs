@@ -56,7 +56,6 @@ pub enum ScriptedCoin {
 #[derive(FromStr, Debug, Clone)]
 #[enumeration(rename_all = "lowercase")]
 pub enum UnscriptedCoin {
-  Nano,
   #[enumeration(alias = "xmr")]
   Monero,
 }

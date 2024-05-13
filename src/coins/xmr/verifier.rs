@@ -78,18 +78,18 @@ impl UnscriptedVerifier for XmrVerifier {
       anyhow::bail!("Invalid version/unlock time");
     }
 
-    let outputs = send.prefix.check_outputs(&pair, 0..1, 0..1).unwrap();
+    let outputs = send.check_outputs(&pair, 0..1, 0..1).unwrap();
 
     // Decrypt the amount, verify the accuracy of the commitment, and confirm with the user
     let enc_amount;
-    if let EcdhInfo::Bulletproof { amount } = send.rct_signatures.sig.as_ref().expect("Transaction from RPC didn't have signature data").ecdh_info[outputs[0].index] {
+    if let EcdhInfo::Bulletproof { amount } = send.rct_signatures.sig.as_ref().expect("Transaction from RPC didn't have signature data").ecdh_info[outputs[0].index()] {
       enc_amount = u64::from_le_bytes(amount.to_fixed_bytes());
     } else {
       anyhow::bail!("Unrecognized transaction type");
     }
 
     let mut amount_key;
-    if let Some(uncompressed) = outputs[0].tx_pubkey.point.decompress() {
+    if let Some(uncompressed) = outputs[0].tx_pubkey().point.decompress() {
       amount_key = self.0.view * uncompressed;
     } else {
       anyhow::bail!("Invalid key used in transaction");
@@ -97,31 +97,32 @@ impl UnscriptedVerifier for XmrVerifier {
     amount_key = amount_key.mul_by_cofactor();
     let mut to_hash = amount_key.compress().to_bytes().to_vec();
     // TODO: Handle this edge case
-    if outputs[0].index > 127 {
+    // It isn't immediately necessary due to the 16 output limit currently present
+    if outputs[0].index() > 127 {
       anyhow::bail!("Transaction output uses VarInt encoding which isn't supported")
     }
-    to_hash.push(outputs[0].index as u8);
+    to_hash.push(outputs[0].index() as u8);
     let amount_key = Scalar::from_bytes_mod_order(
-      Hash::hash(&to_hash).to_bytes()
+      Hash::new(&to_hash).to_bytes()
     ).to_bytes();
 
     let mut amount_enc_key = "amount".as_bytes().to_vec();
     amount_enc_key.extend(&amount_key);
 
     let amount = u64::from_le_bytes(
-      Hash::hash(&amount_enc_key).to_fixed_bytes()[0 .. 8].try_into().unwrap()
+      Hash::new(&amount_enc_key).to_fixed_bytes()[0 .. 8].try_into().unwrap()
     ) ^ enc_amount;
 
     let mut commitment_key = "commitment_mask".as_bytes().to_vec();
     commitment_key.extend(&amount_key);
     let commitment_key = Scalar::from_bytes_mod_order(
-      Hash::hash(&commitment_key).to_fixed_bytes()
+      Hash::new(&commitment_key).to_fixed_bytes()
     );
     if (
       Ed25519Sha::to_public_key(&commitment_key) +
       (*C * Scalar::from(amount))
     ) != Ed25519Sha::bytes_to_public_key(
-      &send.rct_signatures.sig.as_ref().unwrap().out_pk[outputs[0].index].mask.key
+      &send.rct_signatures.sig.as_ref().unwrap().out_pk[outputs[0].index()].mask.key
     )? {
       anyhow::bail!("Invalid commitment")
     }

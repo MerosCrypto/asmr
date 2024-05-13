@@ -5,7 +5,7 @@ use hex_literal::hex;
 
 use log::{debug, trace, warn};
 
-use rand::rngs::OsRng;
+use rand_8::rngs::OsRng;
 use digest::{Digest, generic_array::typenum::U64};
 
 use curve25519_dalek::{
@@ -52,7 +52,7 @@ impl<D: Digest<OutputSize = U64>> CryptEngine for Ed25519Engine<D> {
     Scalar::random(&mut OsRng)
   }
   fn to_public_key(key: &Self::PrivateKey) -> Self::PublicKey {
-    key * &ED25519_BASEPOINT_TABLE
+    key * ED25519_BASEPOINT_TABLE
   }
 
   fn bytes_to_private_key(bytes: [u8; 32]) -> anyhow::Result<Self::PrivateKey> {
@@ -68,7 +68,7 @@ impl<D: Digest<OutputSize = U64>> CryptEngine for Ed25519Engine<D> {
     let mut scalar_bytes = [0; 32];
     scalar_bytes.copy_from_slice(&bytes[32..]);
     #[allow(non_snake_case)]
-    let R = CompressedEdwardsY::from_slice(&bytes[..32]).decompress().ok_or(anyhow::anyhow!("Invalid point in signature specified"))?;
+    let R = CompressedEdwardsY::from_slice(&bytes[..32])?.decompress().ok_or(anyhow::anyhow!("Invalid point in signature specified"))?;
     Ok(Signature {
       s: Scalar::from_bytes_mod_order(scalar_bytes),
       R: R
@@ -83,8 +83,8 @@ impl<D: Digest<OutputSize = U64>> CryptEngine for Ed25519Engine<D> {
 
   fn dl_eq_generate_commitments(key: [u8; 32]) -> anyhow::Result<Vec<Commitment<Self>>> {
     let mut commitments = Vec::new();
-    let mut blinding_key_total = Scalar::zero();
-    let mut power_of_two = Scalar::one();
+    let mut blinding_key_total = Scalar::ZERO;
+    let mut power_of_two = Scalar::ONE;
     let two = Scalar::from(2u8);
     for i in 0..SHARED_KEY_BITS {
       let blinding_key = if i == SHARED_KEY_BITS - 1 {
@@ -106,8 +106,8 @@ impl<D: Digest<OutputSize = U64>> CryptEngine for Ed25519Engine<D> {
         commitment,
       });
     }
-    debug_assert_eq!(blinding_key_total, Scalar::zero());
-    let pubkey = &Scalar::from_bytes_mod_order(key) * &ED25519_BASEPOINT_TABLE;
+    debug_assert_eq!(blinding_key_total, Scalar::ZERO);
+    let pubkey = &Scalar::from_bytes_mod_order(key) * ED25519_BASEPOINT_TABLE;
     debug_assert_eq!(
       &Self::dl_eq_reconstruct_key(commitments.iter().map(|c| &c.commitment))?,
       &pubkey
@@ -125,7 +125,7 @@ impl<D: Digest<OutputSize = U64>> CryptEngine for Ed25519Engine<D> {
     Ok(commitment - ED25519_BASEPOINT_POINT)
   }
   fn dl_eq_reconstruct_key<'a>(commitments: impl Iterator<Item = &'a Self::PublicKey>) -> anyhow::Result<Self::PublicKey> {
-    let mut power_of_two = Scalar::one();
+    let mut power_of_two = Scalar::ONE;
     let mut res = EdwardsPoint::identity();
     let two = Scalar::from(2u8);
     for comm in commitments {
@@ -162,8 +162,8 @@ impl<D: Digest<OutputSize = U64>> CryptEngine for Ed25519Engine<D> {
   #[allow(non_snake_case)]
   fn sign(key: &Self::PrivateKey, message: &[u8]) -> anyhow::Result<Self::Signature> {
     let r = Scalar::random(&mut OsRng);
-    let R = &r * &ED25519_BASEPOINT_TABLE;
-    let A = key * &ED25519_BASEPOINT_TABLE;
+    let R = &r * ED25519_BASEPOINT_TABLE;
+    let A = key * ED25519_BASEPOINT_TABLE;
     let mut hram = [0u8; 64];
     let hash = D::new()
       .chain(&R.compress().as_bytes())
@@ -188,7 +188,7 @@ impl<D: Digest<OutputSize = U64>> CryptEngine for Ed25519Engine<D> {
       .finalize();
     hram.copy_from_slice(&hash);
     let c = Scalar::from_bytes_mod_order_wide(&hram);
-    let expected_R = &signature.s * &ED25519_BASEPOINT_TABLE - c * public_key;
+    let expected_R = &signature.s * ED25519_BASEPOINT_TABLE - c * public_key;
     if expected_R == signature.R {
       Ok(())
     } else {
@@ -202,9 +202,9 @@ impl<D: Digest<OutputSize = U64>> CryptEngine for Ed25519Engine<D> {
     message: &[u8]
   ) -> anyhow::Result<Self::EncryptedSignature> {
     let nonce = Scalar::random(&mut OsRng);
-    let pub_nonce = &nonce * &ED25519_BASEPOINT_TABLE;
+    let pub_nonce = &nonce * ED25519_BASEPOINT_TABLE;
     let challenge_nonce = &pub_nonce + encryption_key;
-    let pub_signing_key = signing_key * &ED25519_BASEPOINT_TABLE;
+    let pub_signing_key = signing_key * ED25519_BASEPOINT_TABLE;
     let mut hram = [0u8; 64];
     let hash = D::new()
       .chain(challenge_nonce.compress().as_bytes())
@@ -256,7 +256,7 @@ impl<D: Digest<OutputSize = U64>> CryptEngine for Ed25519Engine<D> {
     let challenge = Scalar::from_bytes_mod_order_wide(&hram);
     #[allow(non_snake_case)]
     let expected_sB = ciphertext.R + challenge * signing_key;
-    if expected_sB != &ciphertext.s * &ED25519_BASEPOINT_TABLE {
+    if expected_sB != &ciphertext.s * ED25519_BASEPOINT_TABLE {
       anyhow::bail!("Invalid encrypted signature");
     }
     Ok(())
@@ -265,11 +265,11 @@ impl<D: Digest<OutputSize = U64>> CryptEngine for Ed25519Engine<D> {
     // update s and R to match challenge_nonce
     let sig = Signature {
       s: sig.s + key,
-      R: sig.R + key * &ED25519_BASEPOINT_TABLE,
+      R: sig.R + key * ED25519_BASEPOINT_TABLE,
     };
     trace!(
       "Decrypting signature with encryption pubkey {}: {} -> {}",
-      hex::encode((key * &ED25519_BASEPOINT_TABLE).compress().as_bytes()),
+      hex::encode((key * ED25519_BASEPOINT_TABLE).compress().as_bytes()),
       hex::encode(Self::encrypted_signature_to_bytes(&sig)),
       hex::encode(Self::signature_to_bytes(&sig))
     );
@@ -291,7 +291,7 @@ impl<D: Digest<OutputSize = U64>> CryptEngine for Ed25519Engine<D> {
       }
     }
     let key = sig.s - ciphertext.s;
-    if &(&key * &ED25519_BASEPOINT_TABLE) != expected_key {
+    if &(&key * ED25519_BASEPOINT_TABLE) != expected_key {
       anyhow::bail!("Recovered VES key didn't match expected key");
     }
     Ok(key)

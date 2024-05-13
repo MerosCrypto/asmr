@@ -25,7 +25,6 @@ use crate::{
   coins::{
     *,
     btc::{host::BtcHost, verifier::BtcVerifier},
-    nano::{client::NanoClient, verifier::NanoVerifier},
     xmr::{client::XmrClient, verifier::XmrVerifier},
   },
   cli::{ScriptedCoin, UnscriptedCoin, Cli}
@@ -52,7 +51,6 @@ async fn main() {
       ScriptedCoin::Litecoin => BtcHost::new(&scripted_config).map(Into::into),
     }.expect("Failed to create scripted host");
     let mut unscripted_verifier: AnyUnscriptedVerifier = match opts.pair.unscripted {
-      UnscriptedCoin::Nano => NanoVerifier::new(&unscripted_config).map(Into::into),
       UnscriptedCoin::Monero => XmrVerifier::new(&unscripted_config).await.map(Into::into),
     }.expect("Failed to create unscripted verifier");
 
@@ -99,7 +97,6 @@ async fn main() {
 
   if opts.host_or_client.is_client() {
     let mut unscripted_client: AnyUnscriptedClient = match opts.pair.unscripted {
-      UnscriptedCoin::Nano => NanoClient::new(&unscripted_config).map(Into::into),
       UnscriptedCoin::Monero => XmrClient::new(&unscripted_config).await.map(Into::into),
     }.expect("Failed to create unscripted client");
     let mut scripted_verifier: AnyScriptedVerifier = match opts.pair.scripted {
