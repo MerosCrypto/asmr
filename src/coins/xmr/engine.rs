@@ -375,6 +375,10 @@ impl XmrEngine {
     for _ in 0 .. 7 {
       self.mine_block().await?;
     }
+    // Mine a further 230 blocks to create plenty of outputs to mix with
+    for _ in 0 .. 23 {
+      self.mine_block().await?;
+    }
     let _: EmptyResponse = self.wallet_call("rescan_blockchain", json!({})).await?.result;
 
     // Send 1 XMR to our address
