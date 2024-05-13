@@ -18,12 +18,13 @@ log = "0.4.8"
 env_logger = "0.7.1"
 structopt = "0.3.16"
 rand = { version = "0.7.3", features = ["std"] }
+rand_8 = { package = "rand", version = "0.8", features = ["std"] }
 bigint = "4.4.3"
 digest = "0.9.0"
 sha2 = "0.9.1"
 blake2 = "0.9.0"
 rust-argon2 = "0.8.2"
-secp256kfun = { version = "0.1.5", features = ["serialization"] }
+secp256kfun = { version = "0.6", default-features = false, features = ["serde"] }
 curve25519-dalek = { version = "2.1.0", features = ["serde"] }
 serde = { version = "1.0.114", features = ["derive"] }
 derive_more = "0.99.9"
@@ -40,11 +41,15 @@ group = "0.8"
 
 [features]
 no_confs = []
-test_bitcoin_node = []
-test_meros_node = []
+test_litecoin_node = []
 test_nano_node = []
 test_monero_node = []
 
 # Always optimize dependencies
 [profile.dev.package."*"]
 opt-level = 3
+
+[patch.crates-io]
+# https://github.com/rust-lang-nursery/lazy-static.rs/issues/201
+lazy_static = { git = "https://github.com/rust-lang-nursery/lazy-static.rs", rev = "5735630d46572f1e5377c8f2ba0f79d18f53b10c" }
+subtle-ng = { path = "./subtle-ng" }

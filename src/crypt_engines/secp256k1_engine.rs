@@ -5,7 +5,7 @@ use hex_literal::hex;
 
 use log::{debug, trace};
 
-use rand::rngs::OsRng;
+use rand_8::rngs::OsRng;
 use digest::Digest;
 use sha2::Sha256;
 
