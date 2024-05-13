@@ -38,8 +38,11 @@ sleep 10
 ./electrum-ltc/run_electrum create
 ./electrum-ltc/run_electrum load_wallet
 
-address="$(./electrum-ltc/run_electrum getunusedaddress)"
+./litecoin-node/bin/litecoin-cli --rpcport=19443 -rpcuser=ci -rpcpassword=password createwallet ""
+address="$(./litecoin-node/bin/litecoin-cli --rpcport=19443 -rpcuser=ci -rpcpassword=password getnewaddress)"
 ./litecoin-node/bin/litecoin-cli --rpcport=19443 -rpcuser=ci -rpcpassword=password generatetoaddress 110 "$address"
+
+./litecoin-node/bin/litecoin-cli --rpcport=19443 -rpcuser=ci -rpcpassword=password sendtoaddress "$(./electrum-ltc/run_electrum getunusedaddress)" 100
 
 destination="$(./electrum-ltc/run_electrum getunusedaddress)"
 refund="$(./electrum-ltc/run_electrum getunusedaddress)"
