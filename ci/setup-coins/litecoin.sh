@@ -12,7 +12,7 @@ mv litecoin-"$ltc_version" litecoin-node
 
 git clone --depth 1 'https://github.com/spesmilo/electrumx'
 pushd electrumx
-python3 -m pip install --user -e .
+python3 -m pip install -e .
 popd
 
 git clone --depth 1 'https://github.com/pooler/electrum-ltc'
