@@ -564,7 +564,7 @@ impl ScriptedHost for BtcHost {
       &bitcoin::util::key::PrivateKey {
         compressed: true,
         network: NETWORK,
-        key: secp256k1::SecretKey::from_slice(
+        inner: secp256k1::SecretKey::from_slice(
           &Secp256k1Engine::private_key_to_bytes(
             &Secp256k1Engine::new_private_key()
           )

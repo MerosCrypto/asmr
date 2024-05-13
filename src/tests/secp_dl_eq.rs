@@ -1,4 +1,4 @@
-use rand::rngs::OsRng;
+use rand_8::rngs::OsRng;
 use secp256kfun::{marker::*, Scalar, G, g};
 
 use crate::crypt_engines::secp256k1_engine::SecpDleqProof;
