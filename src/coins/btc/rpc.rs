@@ -91,7 +91,7 @@ impl BtcRpc {
   }
 
   pub async fn get_spendable(&self, address: &str) -> anyhow::Result<Vec<UnspentInputResponse>> {
-    self.rpc_call("getaddressunspent", &[address]).await
+    self.rpc_call("getaddressunspent", &json!({"addresses": [address]})).await
   }
 
   pub async fn get_fee_per_byte(&self) -> anyhow::Result<u64> {
