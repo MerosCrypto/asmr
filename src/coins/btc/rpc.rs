@@ -91,6 +91,7 @@ impl BtcRpc {
   }
 
   pub async fn get_spendable(&self, address: &str) -> anyhow::Result<Vec<UnspentInputResponse>> {
+    #[cfg(test)]
     tokio::time::delay_for(core::time::Duration::from_secs(10)).await;
     self.rpc_call("getaddressunspent", &[address]).await
   }
@@ -112,6 +113,9 @@ impl BtcRpc {
   }
 
   pub async fn get_address_history(&self, address: &str) -> Vec<AddressHistoryItem> {
+    #[cfg(test)]
+    tokio::time::delay_for(core::time::Duration::from_secs(10)).await;
+
     #[derive(Deserialize, Debug)]
     struct AddressHistoryResponse {
       fee: Option<u64>,

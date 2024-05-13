@@ -27,7 +27,7 @@ popd
 
 mkdir -p /var/electrumx/db
 chmod 777 -R /var/electrumx/db
-ALLOW_ROOT=true COIN=Litecoin NET=regtest DB_DIRECTORY="/var/electrumx/db" DAEMON_URL="ci:password@127.0.0.1:19443" SERVICES="tcp://127.0.0.1:5000" PEER_DISCOVERY=self ./electrumx/venv/bin/python3 ./electrumx/electrumx_server &
+ALLOW_ROOT=true COIN=Litecoin NET=regtest DB_DIRECTORY="/var/electrumx/db" DAEMON_URL="ci:password@127.0.0.1:19443" SERVICES="tcp://127.0.0.1:5000" DAEMON_POLL_INTERVAL_BLOCKS=1000 DAEMON_POLL_INTERVAL_MEMPOOL=1000 PEER_DISCOVERY=self ./electrumx/venv/bin/python3 ./electrumx/electrumx_server &
 sleep 1
 
 ./electrum-ltc/run_electrum --regtest --offline setconfig rpcport 3000
