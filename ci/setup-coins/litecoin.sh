@@ -50,7 +50,7 @@ refund="$(./electrum-ltc/run_electrum --regtest getunusedaddress)"
 cat > "$config_dir/litecoin.json" << EOF
 {
   "url": "http://ci:password@127.0.0.1:3000",
-  "ltc_url": "http://ci:password@127.0.0.1:18443",
+  "ltc_url": "http://ci:password@127.0.0.1:19443",
   "destination": "$destination",
   "refund": "$refund"
 }
