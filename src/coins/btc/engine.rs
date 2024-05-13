@@ -10,7 +10,8 @@ use bitcoin::{
   hashes::Hash, hash_types::{Txid, WPubkeyHash},
   blockdata::{script::Script, transaction::{OutPoint, TxIn, TxOut, Transaction}},
   network::constants::Network,
-  util::{address::Address, bip143::SighashComponents}
+  util::{address::Address, bip143::SighashComponents},
+  Witness
 };
 
 use crate::crypt_engines::{CryptEngine, secp256k1_engine::Secp256k1Engine};
@@ -96,7 +97,7 @@ impl BtcEngine {
     let key = Secp256k1Engine::new_private_key();
     let public_key = &bitcoin::util::key::PublicKey {
       compressed: true,
-      key: secp256k1::PublicKey::from_secret_key(
+      inner: secp256k1::PublicKey::from_secret_key(
         &SECP,
         &secp256k1::SecretKey::from_slice(
           &Secp256k1Engine::private_key_to_bytes(&key)
@@ -104,11 +105,11 @@ impl BtcEngine {
       ),
     };
     let mut hash_engine = WPubkeyHash::engine();
-    public_key.write_into(&mut hash_engine);
+    public_key.write_into(&mut hash_engine).unwrap();
 
     (
       key,
-      Address::p2wpkh(public_key, NETWORK).to_string(),
+      Address::p2wpkh(public_key, NETWORK).unwrap().to_string(),
       // This is the same payload used in the Address
       // The field unfortunately isn't public though
       WPubkeyHash::from_engine(hash_engine).as_ref().try_into().expect("Couldn't convert a twenty-byte hash to a twenty-byte array")
@@ -217,7 +218,7 @@ impl BtcEngine {
           },
           script_sig: Script::new(),
           sequence: T0 as u32,
-          witness: Vec::new()
+          witness: Witness::new(),
         }
       ],
       output: vec![
@@ -225,7 +226,9 @@ impl BtcEngine {
           script_pubkey: Address::p2wsh(&refund_script, NETWORK).script_pubkey(),
           value: value
         }
-      ]
+      ],
+      is_hog_ex: false,
+      mw_tx: None,
     };
     let fee = ((refund.get_weight() as u64) / 4) * fee_per_byte;
     refund.output[0].value = refund.output[0].value.checked_sub(fee)
@@ -274,7 +277,7 @@ impl BtcEngine {
           },
           script_sig: Script::new(),
           sequence: 0xFFFFFFFF,
-          witness: Vec::new()
+          witness: Witness::new(),
         }
       ],
       output: vec![
@@ -282,7 +285,9 @@ impl BtcEngine {
           script_pubkey: output,
           value: value
         }
-      ]
+      ],
+      is_hog_ex: false,
+      mw_tx: None,
     };
     let fee = ((spend.get_weight() as u64) / 4) * fee_per_byte;
     spend.output[0].value = spend.output[0].value.checked_sub(fee)

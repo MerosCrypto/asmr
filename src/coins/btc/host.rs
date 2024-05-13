@@ -17,7 +17,7 @@ use bitcoin::{
   hashes::hex::FromHex, hash_types::Txid,
   blockdata::{script::Script, transaction::{OutPoint, TxIn, TxOut, Transaction}},
   util::{address::Address, bip143::SighashComponents},
-  consensus::serialize
+  consensus::serialize, Witness,
 };
 
 use crate::{
@@ -197,7 +197,7 @@ impl ScriptedHost for BtcHost {
         previous_output: OutPoint{txid: Txid::from_hex(&input.tx_hash)?, vout: input.tx_pos},
         script_sig: Script::new(),
         sequence: 0xFFFFFFFF,
-        witness: Vec::new()
+        witness: Witness::new()
       })
     }).collect::<anyhow::Result<_>>()?;
 
@@ -212,7 +212,9 @@ impl ScriptedHost for BtcHost {
       output: vec![TxOut {
         value,
         script_pubkey: Script::from(lock_script_hash)
-      }]
+      }],
+      is_hog_ex: false,
+      mw_tx: None,
     };
     let fee = ((lock.get_weight() / 4) as u64) * self.rpc.get_fee_per_byte().await?;
     lock.output[0].value = lock.output[0].value.checked_sub(fee)
@@ -240,7 +242,7 @@ impl ScriptedHost for BtcHost {
 
       let mut signature = signature.to_vec();
       signature.push(1);
-      lock.input[i].witness = vec![signature, key_bytes.clone()];
+      lock.input[i].witness = Witness::from_vec(vec![signature, key_bytes.clone()]);
     }
 
     let fee_per_byte_and_sig = self.prepare_refund_and_spend(lock.txid(), lock.output[0].value).await?;
@@ -280,15 +282,13 @@ impl ScriptedHost for BtcHost {
 
     // Complete the refund transaction
     let mut refund = self.refund.take().expect("Verifying and completing the refund before creating it");
-    refund.input[0].witness = vec![
+    refund.input[0].witness = Witness::from_vec(vec![
       Vec::new(),
-      refund_signature,
-      self.refund_signature.clone().expect("Verifying the refund yet we never signed it"),
+      [refund_signature.as_slice(), &[1]].concat(),
+      [self.refund_signature.clone().expect("Verifying the refund yet we never signed it").as_slice(), &[1]].concat(),
       Vec::new(),
       self.engine.lock_script_bytes.clone().expect("Finishing despite not knowing the lock script")
-    ];
-    refund.input[0].witness[1].push(1);
-    refund.input[0].witness[2].push(1);
+    ]);
     self.refund = Some(refund);
 
     self.encrypted_spend_signature = Some(encrypted_spend_signature);
@@ -354,7 +354,7 @@ impl ScriptedHost for BtcHost {
               previous_output: OutPoint{txid: Txid::from_hex(&input.tx_hash)?, vout: input.tx_pos},
               script_sig: Script::new(),
               sequence: 0xFFFFFFFF,
-              witness: Vec::new()
+              witness: Witness::new()
             })
           }).collect::<anyhow::Result<_>>()?;
 
@@ -367,7 +367,9 @@ impl ScriptedHost for BtcHost {
                 script_pubkey: self.refund_pubkey_script,
                 value
               }
-            ]
+            ],
+            is_hog_ex: false,
+            mw_tx: None,
           };
           let fee = ((return_tx.get_weight() / 4) as u64) * self.rpc.get_fee_per_byte().await?;
           return_tx.output[0].value = return_tx.output[0].value.checked_sub(fee)
@@ -395,7 +397,7 @@ impl ScriptedHost for BtcHost {
 
             let mut signature = signature.to_vec();
             signature.push(1);
-            return_tx.input[i].witness = vec![signature, key_bytes.clone()];
+            return_tx.input[i].witness = Witness::from_vec(vec![signature, key_bytes.clone()]);
           }
 
           self.rpc.publish(&serialize(&return_tx)).await?;
@@ -448,27 +450,25 @@ impl ScriptedHost for BtcHost {
 
         // Complete and publish the spend transaction.
         let mut spend = self.spend.expect("Spend transaction doesn't exist despite having published the lock");
-        spend.input[0].witness = vec![
+        spend.input[0].witness = Witness::from_vec(vec![
           Vec::new(),
-          secp256k1::Signature::from_compact(
+          [secp256k1::Signature::from_compact(
             &Secp256k1Engine::signature_to_bytes(
               &Secp256k1Engine::decrypt_signature(
                 &self.encrypted_spend_signature.expect("Spend signature doesn't exist despite having published the lock"),
                 &self.engine.bs.expect("Never generated keys despite having published the lock")
               )?
             )
-          )?.serialize_der().to_vec(),
-          SECP.sign(
+        )?.serialize_der().to_vec().as_slice(), &[1]].concat(),
+          [SECP.sign(
             &secp256k1::Message::from_slice(
               &self.spend_message.expect("Spend message doesn't exist despite having published the lock")
             )?,
             &secp256k1::SecretKey::from_slice(&Secp256k1Engine::private_key_to_bytes(&self.engine.br))?
-          ).serialize_der().to_vec(),
+        ).serialize_der().to_vec().as_slice(), &[1]].concat(),
           vec![1],
           self.engine.refund_script_bytes.expect("Finishing despite not knowing the lock script")
-        ];
-        spend.input[0].witness[1].push(1);
-        spend.input[0].witness[2].push(1);
+        ]);
         self.rpc.publish(&serialize(&spend)).await?;
 
         Ok(())
@@ -490,7 +490,7 @@ impl ScriptedHost for BtcHost {
           },
           script_sig: Script::new(),
           sequence: 0xFFFFFFFF,
-          witness: Vec::new()
+          witness: Witness::new()
         }
       ],
       output: vec![
@@ -498,7 +498,9 @@ impl ScriptedHost for BtcHost {
           script_pubkey: self.client_destination_script.clone().expect("Preparing buy for client before knowing their destination"),
           value: lock.output[0].value
         }
-      ]
+      ],
+      is_hog_ex: false,
+      mw_tx: None,
     };
     let fee = ((buy.get_weight() as u64) / 4) * self.rpc.get_fee_per_byte().await?;
     buy.output[0].value = buy.output[0].value.checked_sub(fee)
@@ -541,7 +543,7 @@ impl ScriptedHost for BtcHost {
       }
     }
 
-    let their_signature = &buy?.input[0].witness[2];
+    let their_signature = &buy?.input[0].witness.clone().to_vec()[2];
     let signature = secp256k1::Signature::from_der(
       &their_signature[.. their_signature.len() - 1]
     ).expect("Signature included in the buy transaction wasn't valid despite getting on chain").serialize_compact();

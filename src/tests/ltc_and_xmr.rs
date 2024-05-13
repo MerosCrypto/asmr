@@ -32,7 +32,7 @@ pub async fn run_test<F, Fut>(host_test: bool, test: F)
   where F: FnOnce(AnyScriptedHost, AnyUnscriptedVerifier, AnyUnscriptedClient, AnyScriptedVerifier) -> Fut,
     Fut: Future<Output = anyhow::Result<bool>>
 {
-  let scripted: PathBuf = "config/bitcoin.json".to_string().into();
+  let scripted: PathBuf = "config/litecoin.json".to_string().into();
   let unscripted: PathBuf = "config/monero.json".to_string().into();
 
   let mut host: AnyScriptedHost = BtcHost::new(&scripted).expect("Failed to create BTC host").into();
@@ -58,7 +58,7 @@ pub async fn run_test<F, Fut>(host_test: bool, test: F)
 }
 
 #[tokio::test]
-pub async fn test_btc_and_xmr() {
+pub async fn test_ltc_and_xmr() {
   let _ = env_logger::builder().is_test(true).try_init();
   run_test(true, test_success).await;
 

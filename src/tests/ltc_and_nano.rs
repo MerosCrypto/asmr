@@ -1,13 +1,16 @@
 use std::{
   path::PathBuf,
-  future::Future
+  future::Future,
+  time::Duration
 };
+
+use tokio::time::delay_for;
 
 use crate::{
   coins::{
     *,
     btc::{host::BtcHost, verifier::BtcVerifier},
-    zec::{client::ZecShieldedClient, verifier::ZecShieldedVerifier}
+    nano::{client::NanoClient, verifier::NanoVerifier}
   },
   tests::swap::{
     success::test_success,
@@ -32,18 +35,18 @@ pub async fn run_test<F, Fut>(host_test: bool, test: F)
   where F: FnOnce(AnyScriptedHost, AnyUnscriptedVerifier, AnyUnscriptedClient, AnyScriptedVerifier) -> Fut,
     Fut: Future<Output = anyhow::Result<bool>>
 {
-  let scripted: PathBuf = "config/bitcoin.json".to_string().into();
-  let unscripted: PathBuf = "config/zcashshielded.json".to_string().into();
+  let scripted: PathBuf = "config/litecoin.json".to_string().into();
+  let unscripted: PathBuf = "config/nano.json".to_string().into();
 
   let mut host: AnyScriptedHost = BtcHost::new(&scripted).expect("Failed to create BTC host").into();
   host.override_refund_with_random_address();
   let host_refund = host.get_refund_address();
-  let hosts_verifier: AnyUnscriptedVerifier = ZecShieldedVerifier::new(&unscripted).await.expect("Failed to create BTC verifier").into();
+  let hosts_verifier: AnyUnscriptedVerifier = NanoVerifier::new(&unscripted).expect("Failed to create Nano verifier").into();
 
-  let mut client: AnyUnscriptedClient = ZecShieldedClient::new(&unscripted).await.expect("Failed to create ZCash client").into();
+  let mut client: AnyUnscriptedClient = NanoClient::new(&unscripted).expect("Failed to create Nano client").into();
   client.override_refund_with_random_address();
   let client_refund = client.get_refund_address();
-  let clients_verifier: AnyScriptedVerifier = BtcVerifier::new(&scripted).expect("Failed to create ZCash verifier").into();
+  let clients_verifier: AnyScriptedVerifier = BtcVerifier::new(&scripted).expect("Failed to create BTC verifier").into();
 
   let should_have_funds = test(host, hosts_verifier, client, clients_verifier).await.unwrap();
   if host_test {
@@ -51,14 +54,14 @@ pub async fn run_test<F, Fut>(host_test: bool, test: F)
     host.advance_consensus().await.unwrap();
     assert_eq!(should_have_funds, host.get_if_funded(&host_refund).await);
   } else {
-    let client = ZecShieldedClient::new(&unscripted).await.unwrap();
-    client.advance_consensus().await.unwrap();
+    let client = NanoClient::new(&unscripted).unwrap();
+    delay_for(Duration::from_secs(5)).await; // wait for the transaction to be confirmed
     assert_eq!(should_have_funds, client.get_if_funded(&client_refund).await);
   }
 }
 
 #[tokio::test]
-pub async fn test_btc_and_zec() {
+pub async fn test_ltc_and_nano() {
   let _ = env_logger::builder().is_test(true).try_init();
   run_test(true, test_success).await;
 

@@ -62,12 +62,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-${{ hashFiles('rust-toolchain') }}-
 
-      - name: Electrs cache
-        uses: actions/cache@v2
-        with:
-          path: ~/coins/bitcoin/electrs/target/debug/electrs
-          key: ${{ runner.os }}-electrs-v0.8.10
-
       - name: Nano-node cache
         uses: actions/cache@v2
         with:
@@ -83,11 +77,14 @@ jobs:
             ${{ runner.os }}-pip-electrum-
             ${{ runner.os }}-pip-
 
-      - name: Setup Bitcoin
-        run: ./ci/setup-coins/bitcoin.sh
+      - name: Setup Litecoin
+        run: ./ci/setup-coins/litecoin.sh
+
+      - name: Setup Monero
+        run: ./ci/setup-coins/monero.sh
 
       - name: Setup Nano
         run: ./ci/setup-coins/nano.sh
 
-      - name: Run Bitcoin-Nano swap tests
-        run: RUST_LOG=asmr=debug cargo test --features test_bitcoin_node,test_nano_node -- btc_and_nano --nocapture
+      - name: Run Litecoin-Monero swap tests
+        run: RUST_LOG=asmr=debug cargo test --features test_litecoin_node,test_monero_node -- ltc_and_xmr --nocapture

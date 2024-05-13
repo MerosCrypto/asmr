@@ -15,7 +15,8 @@ use bitcoin::{
   hash_types::Txid,
   blockdata::{script::Script, transaction::{OutPoint, TxIn, TxOut, Transaction}},
   util::{address::Address, bip143::SighashComponents},
-  consensus::{serialize, deserialize}
+  consensus::{serialize, deserialize},
+  Witness,
 };
 
 use crate::{
@@ -92,7 +93,7 @@ impl BtcVerifier {
         refund_spend = history.remove(0).tx;
       }
       let decrypted = secp256k1::Signature::from_der(
-        &refund_spend.input[0].witness[1][0 .. refund_spend.input[0].witness[1].len() - 1]
+        &refund_spend.input[0].witness.clone().to_vec()[1][0 .. refund_spend.input[0].witness.clone().to_vec()[1].len() - 1]
       ).expect("Published BTC transaction has an invalid signature").serialize_compact().to_vec();
 
       Some(
@@ -201,15 +202,13 @@ impl ScriptedVerifier for BtcVerifier {
     let encrypted_spend_sig = Secp256k1Engine::encrypted_signature_to_bytes(&encrypted_spend_sig_typed);
     self.encrypted_spend_sig = Some(encrypted_spend_sig_typed);
 
-    refund.input[0].witness = vec![
+    refund.input[0].witness = Witness::from_vec(vec![
       Vec::new(),
-      refund_sig.clone(),
-      lock_and_refund.host_refund_signature,
+      [refund_sig.clone().as_slice(), &[1]].concat(),
+      [lock_and_refund.host_refund_signature.as_slice(), &[1]].concat(),
       Vec::new(),
       self.engine.lock_script_bytes.clone().expect("Completing refund despite not knowing the lock script")
-    ];
-    refund.input[0].witness[1].push(1);
-    refund.input[0].witness[2].push(1);
+    ]);
     self.refund = Some(refund);
 
     Ok(bincode::serialize(&ClientRefundAndSpendSignatures {
@@ -244,7 +243,7 @@ impl ScriptedVerifier for BtcVerifier {
           },
           script_sig: Script::new(),
           sequence: 0xFFFFFFFF,
-          witness: Vec::new()
+          witness: Witness::new()
         }
       ],
       output: vec![
@@ -252,7 +251,9 @@ impl ScriptedVerifier for BtcVerifier {
           script_pubkey: self.destination_script.clone(),
           value: buy_info.value
         }
-      ]
+      ],
+      is_hog_ex: false,
+      mw_tx: None,
     };
 
     let components = SighashComponents::new(&buy);
@@ -285,16 +286,14 @@ impl ScriptedVerifier for BtcVerifier {
       ).expect("Secp256k1Engine generated an invalid secp256k1 key")
     ).serialize_der();
 
-    buy.input[0].witness = vec![
+    buy.input[0].witness = Witness::from_vec(vec![
       Vec::new(),
-      signature.to_vec(),
-      decrypted_signature.serialize_der().to_vec(),
+      [signature.to_vec().as_slice(), &[1]].concat(),
+      [decrypted_signature.serialize_der().to_vec().as_slice(), &[1]].concat(),
       Vec::new(),
       vec![1],
       self.engine.lock_script_bytes.clone().expect("Finishing despite not knowing the lock script")
-    ];
-    buy.input[0].witness[1].push(1);
-    buy.input[0].witness[2].push(1);
+    ]);
     self.buy = Some(buy);
 
     Ok(())
@@ -401,11 +400,7 @@ impl ScriptedVerifier for BtcVerifier {
           },
           script_sig: Script::new(),
           sequence: T1 as u32,
-          witness: vec![
-            vec![0; 65],
-            Vec::new(),
-            refund_script.to_bytes()
-          ]
+          witness: Witness::new(),
         }
       ],
       output: vec![
@@ -413,14 +408,17 @@ impl ScriptedVerifier for BtcVerifier {
           script_pubkey: self.destination_script.clone(),
           value: refund.output[0].value
         }
-      ]
+      ],
+      is_hog_ex: false,
+      mw_tx: None,
     };
     let fee = ((claim.get_weight() as u64) / 4) * self.rpc.get_fee_per_byte().await?;
     claim.output[0].value = claim.output[0].value.checked_sub(fee)
       .ok_or_else(|| anyhow::anyhow!("Not enough Bitcoin to pay for {} sats of fees", fee))?;
 
     let components = SighashComponents::new(&claim);
-    claim.input[0].witness[0] = SECP.sign(
+    claim.input[0].witness = Witness::from_vec(vec![
+    [SECP.sign(
       &secp256k1::Message::from_slice(
         &components.sighash_all(
           &claim.input[0],
@@ -431,8 +429,10 @@ impl ScriptedVerifier for BtcVerifier {
       &secp256k1::SecretKey::from_slice(
         &Secp256k1Engine::private_key_to_bytes(&self.engine.b)
       ).expect("Secp256k1Engine generated an invalid secp256k1 key")
-    ).serialize_der().to_vec();
-    claim.input[0].witness[0].push(1);
+  ).serialize_der().to_vec().as_slice(), &[1]].concat(),
+      Vec::new(),
+      refund_script.to_bytes()
+    ]);
 
     let _ = self.rpc.publish(&serialize(&claim)).await;
     let claim_id = claim.txid();
@@ -476,7 +476,11 @@ impl ScriptedVerifier for BtcVerifier {
     }
 
     let mut buy = self.buy.clone().expect("Finishing before verifying buy");
-    buy.input[0].witness[3] = swap_secret.to_vec();
+    {
+      let mut witness = buy.input[0].witness.to_vec();
+      witness[3] = swap_secret.to_vec();
+      buy.input[0].witness = Witness::from_vec(witness);
+    }
     self.rpc.publish(&serialize(&buy)).await?;
 
     Ok(())
