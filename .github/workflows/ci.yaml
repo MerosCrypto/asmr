@@ -11,7 +11,7 @@ jobs:
 
       - name: Build dependencies
         run: |
-          rustup update stable
+          rustup update stable --no-self-update
           rustup default stable
           sudo apt update
           sudo apt install -y ca-certificates libssl-dev
@@ -31,7 +31,7 @@ jobs:
 
       - name: Install coin dependencies
         run: |
-          rustup update stable
+          rustup update stable --no-self-update
           rustup default stable
           sudo apt-get update
           # Electrum dependencies
