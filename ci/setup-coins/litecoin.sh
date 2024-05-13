@@ -27,7 +27,8 @@ echo 'SERVICES=tcp://127.0.0.1:5000' > ~/electrumx.conf
 echo 'DAEMON_URL=ci:password@127.0.0.1:19443' > ~/electrumx.conf
 echo 'PEER_DISCOVERY=self' > ~/electrumx.conf
 
-./electrumx/electrumx_server &
+mkdir -p ~/electrumx/db
+DB_DIRECTORY=~/electrumx/db ./electrumx/electrumx_server &
 ./electrum-ltc/run_electrum --offline setconfig rpcport 3000
 ./electrum-ltc/run_electrum --offline setconfig rpcuser ci
 ./electrum-ltc/run_electrum --offline setconfig rpcpassword password
