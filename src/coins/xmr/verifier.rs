@@ -82,7 +82,7 @@ impl UnscriptedVerifier for XmrVerifier {
 
     // Decrypt the amount, verify the accuracy of the commitment, and confirm with the user
     let enc_amount;
-    if let EcdhInfo::Bulletproof2 { amount } = send.rct_signatures.sig.as_ref().expect("Transaction from RPC didn't have signature data").ecdh_info[outputs[0].index] {
+    if let EcdhInfo::Bulletproof { amount } = send.rct_signatures.sig.as_ref().expect("Transaction from RPC didn't have signature data").ecdh_info[outputs[0].index] {
       enc_amount = u64::from_le_bytes(amount.to_fixed_bytes());
     } else {
       anyhow::bail!("Unrecognized transaction type");

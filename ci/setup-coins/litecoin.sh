@@ -7,8 +7,7 @@ mkdir -p "$config_dir"
 mkdir -p ~/coins/litecoin
 cd ~/coins/litecoin
 
-ltc_version="0.20.1"
-curl https://download.litecoin.org/litecoin-0.21.3/linux/litecoin-"$ltc_version"/linux/litecoin-"$ltc_version"-x86_64-linux-gnu.tar.gz | tar -xzf -
+ltc_version="0.21.3" && curl https://download.litecoin.org/litecoin-"$ltc_version"/linux/litecoin-"$ltc_version"-x86_64-linux-gnu.tar.gz | tar -xzf -
 mv litecoin-"$ltc_version" litecoin-node
 
 git clone --depth 1 --branch v0.8.10 'https://github.com/spesmilo/electrumx'
@@ -42,7 +41,7 @@ refund="$(./electrum-ltc/run_electrum --regtest getunusedaddress)"
 cat > "$config_dir/litecoin.json" << EOF
 {
   "url": "http://ci:password@127.0.0.1:3000",
-  "btc_url": "http://ci:password@127.0.0.1:18443",
+  "ltc_url": "http://ci:password@127.0.0.1:18443",
   "destination": "$destination",
   "refund": "$refund"
 }

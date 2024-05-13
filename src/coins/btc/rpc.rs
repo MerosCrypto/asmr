@@ -40,14 +40,14 @@ pub struct AddressHistoryItem {
 pub struct BtcRpc {
   url: String,
   #[allow(dead_code)]
-  btc_url: Option<String>
+  ltc_url: Option<String>
 }
 
 impl BtcRpc {
   pub fn new(config: &BtcConfig) -> anyhow::Result<BtcRpc> {
     Ok(BtcRpc {
       url: config.url.clone(),
-      btc_url: config.btc_url.clone()
+      ltc_url: config.ltc_url.clone()
     })
   }
 
@@ -155,7 +155,7 @@ impl BtcRpc {
     let address: String = self.rpc_call("getunusedaddress", &json!([])).await?;
     let client = reqwest::Client::new();
     let res: serde_json::Value =
-      client.post(&self.btc_url.clone().expect("Calling directly to BTCd except no URL was specified"))
+      client.post(&self.ltc_url.clone().expect("Calling directly to BTCd except no URL was specified"))
       .json(
         & FullParams {
           jsonrpc: "2.0",

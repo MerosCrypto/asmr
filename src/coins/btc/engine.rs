@@ -37,7 +37,7 @@ lazy_static! {
 #[derive(Deserialize)]
 pub struct BtcConfig {
   pub url: String,
-  pub btc_url: Option<String>,
+  pub ltc_url: Option<String>,
   pub destination: String,
   pub refund: String
 }
