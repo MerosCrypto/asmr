@@ -26,11 +26,15 @@ popd
 ./litecoin-node/bin/litecoind -regtest -daemon -server=1 -txindex=1 -prune=0 -rpcport=19443 -rpcuser=ci -rpcpassword=password
 
 mkdir -p ~/electrumx/db
+chmod 777 -R ~/electrumx/db
 COIN=Litecoin DB_DIRECTORY="~/electrumx/db" DAEMON_URL="ci:password@127.0.0.1:19443" SERVICES="tcp://127.0.0.1:5000" PEER_DISCOVERY=self ./electrumx/venv/bin/python3 ./electrumx/electrumx_server &
+sleep 1
+
 ./electrum-ltc/run_electrum --offline setconfig rpcport 3000
 ./electrum-ltc/run_electrum --offline setconfig rpcuser ci
 ./electrum-ltc/run_electrum --offline setconfig rpcpassword password
 ./electrum-ltc/run_electrum daemon -d -s 127.0.0.1:5000:t
+sleep 1
 ./electrum-ltc/run_electrum create
 ./electrum-ltc/run_electrum load_wallet
 
