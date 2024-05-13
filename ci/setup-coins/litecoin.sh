@@ -10,9 +10,9 @@ cd ~/coins/litecoin
 ltc_version="0.21.3" && curl https://download.litecoin.org/litecoin-"$ltc_version"/linux/litecoin-"$ltc_version"-x86_64-linux-gnu.tar.gz | tar -xzf -
 mv litecoin-"$ltc_version" litecoin-node
 
-git clone --depth 1 --branch v0.8.10 'https://github.com/spesmilo/electrumx'
+git clone --depth 1 'https://github.com/spesmilo/electrumx'
 
-git clone --depth 1 --branch 4.0.2 'https://github.com/pooler/electrum-ltc'
+git clone --depth 1 'https://github.com/pooler/electrum-ltc'
 pushd electrum-ltc
 python3 -m pip install --user -e .
 popd
