@@ -52,4 +52,4 @@ jobs:
         run: sudo chown runner:runner ./config && sudo chmod 777 -R ./config
 
       - name: Run Litecoin-Monero swap tests
-        run: RUST_LOG=asmr=debug cargo test --features test_litecoin_node,test_monero_node -- ltc_and_xmr --nocapture
+        run: RUST_BACKTRACE=1 RUST_LOG=asmr=debug cargo test --features test_litecoin_node,test_monero_node -- ltc_and_xmr --nocapture

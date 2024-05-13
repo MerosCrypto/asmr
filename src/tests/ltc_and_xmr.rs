@@ -60,17 +60,28 @@ pub async fn run_test<F, Fut>(host_test: bool, test: F)
 #[tokio::test]
 pub async fn test_ltc_and_xmr() {
   let _ = env_logger::builder().is_test(true).try_init();
+  dbg!("test_success");
   run_test(true, test_success).await;
 
+  dbg!("test_no_host_address");
   run_test(true, test_no_host_address).await;
+  dbg!("test_never_funded_address");
   run_test(true, test_never_funded_address).await;
+  dbg!("test_funded_address_no_lock");
   run_test(true, test_funded_address_no_lock).await;
+  dbg!("test_funded_address_created_lock");
   run_test(true, test_funded_address_created_lock).await;
+  dbg!("test_published_lock");
   run_test(true, test_published_lock).await;
+  dbg!("test_attempted_refund_yet_success");
   run_test(true, test_attempted_refund_yet_success).await;
 
+  dbg!("test_no_client_address");
   run_test(false, test_no_client_address).await;
+  dbg!("test_generated_address");
   run_test(false, test_generated_address).await;
+  dbg!("test_funded_get_unscripted");
   run_test(false, test_funded_get_unscripted).await;
+  dbg!("test_funded_get_scripted");
   run_test(false, test_funded_get_scripted).await;
 }
